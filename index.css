@@ -1,0 +1,58 @@
+body {
+	width: 100%;
+	height: auto;
+	max-width: 1024px;
+	margin: auto;
+	margin-top: 80px;
+	font-family: monospace;
+	font-size: 1.25em;
+}
+
+.flex-container {
+	display: flex;
+	flex-direction: "row";
+	justify-content: "space-around";
+}
+  
+.flex-container > div {
+	background-color: #f1f1f1;
+	margin: 10px;
+	padding: 20px;
+	font-size: 30px;
+}
+
+a {
+	text-decoration: none;
+	font-weight: bold;
+	color: black;
+}
+
+a:hover {
+	color: blue;
+}
+
+button {
+	border: 1px solid black;
+	display: block;
+	position: relative;
+	text-align: center;
+	width: 160px;
+	height: 50px;
+	opacity: 0.5;
+	margin-left: auto;
+	margin-right: auto;
+	background-color: white;
+}
+
+button:hover {
+	background-color: #f0f;
+}
+
+button.active {
+	pointer-events: initial;
+	opacity: 1;
+}
+
+h3 {
+	margin-top: 0px;
+}
