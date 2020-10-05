@@ -6,7 +6,7 @@ import IntervalTree from 'node-interval-tree';
 import { v4 as uuidv4 } from 'uuid';
 //import Keyboard from 'piano-keyboard';
 
-const ADSR_SAMPLE_DEFAULTS = { attack: 0.01, decay: 0.1, sustain: 0.9, release: 0.3 };
+const ADSR_SAMPLE_DEFAULTS = { "attack": 0.01, "decay": 0.1, "sustain": 0.9, "release": 0.3 };
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
 const FLAT_NOTES = ["A", "Bb", "B", "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab"];
@@ -366,14 +366,14 @@ const midiEvent = function(event) {
         }
 
         try {
-          let adsr = [adsr['attack'], adsr['decay'], adsr['sustain'], adsr['release']];
+          adsr = [adsr['attack'], adsr['decay'], adsr['sustain'], adsr['release']];
           
-          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume, adsr });
+          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume /*, adsr */ });
           console.log(noteNode);
           activeAudioNodes[noteNumber] = noteNode;
-        } catch {
+        } catch(error) {
           // Get rid of this eventually
-          console.log("IMPOSSIBLE ADSR VALUES FOR THIS NOTE, RESETTING");
+          console.log("NOTE PLAY ERROR:",error);
           adsr = [ADSR_SAMPLE_DEFAULTS['attack'], ADSR_SAMPLE_DEFAULTS['decay'], ADSR_SAMPLE_DEFAULTS['sustain'], ADSR_SAMPLE_DEFAULTS['release']];
           let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume, adsr });
           activeAudioNodes[noteNumber] = noteNode;
@@ -480,6 +480,7 @@ const pressSustainPedal = function() {
         sustainedNotes.push(noteNumber)
       }
 	});
+	console.log("SUSTAIN ON");
 	sustainPedalOn = true;
 }
 
@@ -497,6 +498,7 @@ const releaseSustainPedal = function() {
       }
 	});
 	sustainPedalOn = false;
+	console.log("SUSTAIN OFF");
 	sustainedNotes = [];
 }
 
