@@ -369,7 +369,7 @@ const midiEvent = function(event) {
         try {
           adsr = [adsr['attack'], adsr['decay'], adsr['sustain'], adsr['release']];
           
-          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume, adsr });
+          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume /*, adsr */ });
           console.log(noteNode);
           activeAudioNodes[noteNumber] = noteNode;
         } catch(error) {
