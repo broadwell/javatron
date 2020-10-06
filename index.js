@@ -1,6 +1,6 @@
 import MidiPlayer from "midi-player-js"; // Decodes and plays back MIDI data
 import Soundfont from "soundfont-player"; // Generates sounds for MIDI events
-//import OpenSeadragon from 'openseadragon';
+import OpenSeadragon from 'openseadragon';
 import IntervalTree from 'node-interval-tree';
 //import verovio from 'verovio';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,6 +13,7 @@ const FLAT_NOTES = ["A", "Bb", "B", "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "
 const SOFT_PEDAL_RATIO = .67;
 const DEFAULT_NOTE_VELOCITY = 33.0;
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
+const HOME_ZOOM = 1;
 let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
 
@@ -52,9 +53,9 @@ let pedalMap = null;
 let openSeadragon = null;
 let firstHolePx = 0;
 let scrollTimer = null;
-let homeZoom = null;
-
 let viewerId = uuidv4();
+let viewerHomed = false; // Hack to get OSD to scroll to tick 0 after load
+
 let scorePages = [];
 let scoreMidi = [];
 let scorePlaying = false;
@@ -71,16 +72,19 @@ const loadSong = function(e, currentSongId) {
 
     if (e) {
       currentSongId = e.target.value;
-    }
+	}
+	
+	viewerHomed = false;
 
     console.log("loading song ID", currentSongId);
 
     let songSlug = recordings_data[currentSongId]['slug'];
     currentSong = midiData[songSlug];
 
-    //openSeadragon.open(recordings_data[currentSongId]['image_url']);
+	console.log("osd loading image URL",recordings_data[currentSongId]['image_url']);
+	openSeadragon.open(recordings_data[currentSongId]['image_url']);
 
-	Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(initPlayer);
+	initPlayer();
 
 	/* load the MEI data as string into the toolkit */
 	//vrvToolkit.loadData(scoreData[songSlug]);
@@ -149,23 +153,19 @@ const loadSong = function(e, currentSongId) {
       MidiSamplePlayer.loadDataUri(scoreMIDI);
 
 	*/
-}
 
+	updateProgress();
+
+}
 
 /* SAMPLE-BASED PLAYBACK USING midi-player-js AND soundfont-player */
 
-const initPlayer = function(inst) {
+const initPlayer = function() {
 
     /* Instantiate the MIDI player */
     let MidiSamplePlayer = new MidiPlayer.Player();
 
     /* Various event handlers, mostly used for debugging */
-
-    // This is how to know when a note sample has finished playing
-    inst.on('ended', (when, name) => {
-      //console.log('ended', name)
-    });
-
     MidiSamplePlayer.on('fileLoaded', () => {
       console.log("data loaded");
 
@@ -178,10 +178,6 @@ const initPlayer = function(inst) {
                 return String.fromCodePoint(parseInt(num, 16));
             });
       }
-
-      // openSeadragon.viewport.fitHorizontally(true);
-
-      //let viewportBounds = openSeadragon.viewport.getBounds();
 
       firstHolePx = 0;
       let lastHolePx = 0;
@@ -247,19 +243,30 @@ const initPlayer = function(inst) {
           }
         });
 	  });
-	  console.log(rollMetadata);
+
+	  document.getElementById('title').innerText = rollMetadata['TITLE'];
+	  document.getElementById('performer').innerText = rollMetadata['PERFORMER'];
+	  document.getElementById('composer').innerText = rollMetadata['COMPOSER'];
+	  document.getElementById('label').innerText = rollMetadata['LABEL'];
+	  document.getElementById('purl').innerHTML = '<a href="' + rollMetadata['PURL'] + '">' + rollMetadata['PURL'] + '</a>';
+	  document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
 
       firstHolePx = parseInt(rollMetadata['FIRST_HOLE']);
       lastHolePx = parseInt(rollMetadata['LAST_HOLE']);
-      holeWidthPx = parseInt(rollMetadata['AVG_HOLE_WIDTH']);
+	  holeWidthPx = parseInt(rollMetadata['AVG_HOLE_WIDTH']);
+	  
+	  let rollWidth = parseInt(rollMetadata['ROLL_WIDTH']);
 
-      //let firstLineViewport = \openSeadragon.viewport.imageToViewportCoordinates(0,firstHolePx);
+	  /*
+	  let bounds = openSeadragon.viewport.getBounds();
+	  console.log("VIEWPORT BOUNDS",bounds,"FIRST HOLE PX",firstHolePx);
+	  let firstLine = openSeadragon.viewport.imageToViewportCoordinates(0,firstHolePx);
+	  console.log("FIRST HOLE IN VIEWPORT COORDS",firstLine);
+	  let firstCenter = new OpenSeadragon.Point(bounds.width / 2.0, firstLine.y);
+	  console.log("FIRST CENTER",firstCenter);
+	  openSeadragon.viewport.panTo(firstCenter);
+	  */
 
-      //let bounds = new OpenSeadragon.Rect(0.0,firstLineViewport.y - (viewportBounds.height / 2.0),viewportBounds.width, viewportBounds.height);
-
-      //openSeadragon.viewport.fitBounds(bounds, true);
-
-      //let homeZoom = openSeadragon.viewport.getZoom();
 
       /*
       // Play line can be drawn via CSS (though not as accurately), but very
@@ -277,13 +284,6 @@ const initPlayer = function(inst) {
         playLine.update(playPoint, OpenSeadragon.Placement.TOP_LEFT);
       }
       */
-
-	  instrument = inst;
-
-      // XXX Sometimes, on song change, the viewport doesn't automatically jump
-      // to the starting bounds+zoom for the new song. Not sure why.
-      // Maybe try adding a this.skipToTick(0) here?
-      //openSeadragon.viewport.zoomTo(homeZoom);
 
     });
     
@@ -303,13 +303,15 @@ const initPlayer = function(inst) {
 	samplePlayer = MidiSamplePlayer;
 
     /* Load MIDI data */
-    MidiSamplePlayer.loadDataUri(currentSong);
+	samplePlayer.loadDataUri(currentSong);
+
+	totalTicks = samplePlayer.totalTicks;
 
 }
 
 const midiEvent = function(event) {
 
-	console.log("MIDI EVENT",event);
+	//console.log("MIDI EVENT",event);
 
     // Do something when a MIDI event is fired.
     // (this is the same as passing a function to MidiPlayer.Player() when instantiating).
@@ -328,7 +330,6 @@ const midiEvent = function(event) {
 
         if (!sustainedNotes.includes(noteNumber)) {
           try {
-            console.log(activeAudioNodes[noteNumber]);
             activeAudioNodes[noteNumber].stop(ac.currentTime);
           } catch(error) {
 			console.log("COULDN'T STOP",noteNumber,getNoteName(noteNumber));
@@ -370,7 +371,6 @@ const midiEvent = function(event) {
           adsr = [adsr['attack'], adsr['decay'], adsr['sustain'], adsr['release']];
           
           let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume /*, adsr */ });
-          console.log(noteNode);
           activeAudioNodes[noteNumber] = noteNode;
         } catch(error) {
           // Get rid of this eventually
@@ -441,17 +441,25 @@ const playPauseSong = function() {
     if (samplePlayer.isPlaying()) {
 	  console.log("Pausing song");
       samplePlayer.pause();
-	  //clearInterval(scrollTimer);
+	  clearInterval(scrollTimer);
 	  playState = "paused";
 	  scrollTimer = null;
     } else {
-      //openSeadragon.viewport.zoomTo(homeZoom);
-      //let scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
+      openSeadragon.viewport.zoomTo(HOME_ZOOM);
 	  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
 	  playState = "playing";
-	  totalTicks = samplePlayer.totalTicks;
-	  console.log("Playing song with total ticks", totalTicks);
-      samplePlayer.play();
+	  // XXX Consider setting a timer to recycle AudioContext and sample player
+	  // periodically to avoid Firefox fuzzout issue. This likely would case a
+	  // noticeable skip during playback when it happens, though. 
+	  if (ac) {
+		ac.close();
+	  }
+	  ac = new AudioContext();
+	  Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
+		instrument = inst;
+		scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
+		samplePlayer.play();
+	  });
     }
 }
 
@@ -459,24 +467,40 @@ const stopSong = function() {
     if (samplePlayer.isPlaying() || (playState === "paused")) {
 
       samplePlayer.stop();
-      //clearInterval(scrollTimer);
-	  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	  playState = "stopped";
-	  scrollTimer = null;
-	  activeAudioNodes = {};
-	  activeNotes = [];
-	  sustainedNotes = [];
-	  sustainPedalOn = false;
-	  softPedalOn = false;
+	  clearInterval(scrollTimer);
+	  
+	  ac.close().then(function () {
+			activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
+			playState = "stopped";
+			scrollTimer = null;
+			activeAudioNodes = {};
+			activeNotes = [];
+			sustainedNotes = [];
+			sustainPedalOn = false;
+			softPedalOn = false;
+  
+		    ac = null;
+		    instrument = null;
+	  });
 
-      //panViewportToTick(0);
     }
+}
+
+const updateProgress = function() {
+
+    if (totalTicks > 0) {
+		currentProgress = parseFloat(currentTick) / parseFloat(totalTicks);
+	}
+
+	document.getElementById('progressPct').innerText = (currentProgress * 100.).toFixed(2)+"%"
 }
 
 const skipTo = function(targetTick, targetProgress) {
     if (!(samplePlayer || scorePlayer)) {
       return;
-    }
+	}
+	
+	console.log("SKIPPING TO",targetTick,targetProgress);
 
     let playTick = Math.max(0, targetTick);
     let playProgress = Math.max(0, targetProgress);
@@ -488,7 +512,7 @@ const skipTo = function(targetTick, targetProgress) {
       activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
 	  activeAudioNodes = {};
 	  activeNotes = [];
-	  sustained_notes = [];
+	  sustainedNotes = [];
 	  currentProgress = playProgress;
 	  scorePlayer.play();
       return;
@@ -506,20 +530,67 @@ const skipTo = function(targetTick, targetProgress) {
 	  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
 	  activeAudioNodes = {};
 	  activeNotes = [];
-	  sustained_notes = [];
+	  sustainedNotes = [];
 	  currentProgress = playProgress;
       samplePlayer.play();
     } else {
       samplePlayer.skipToTick(playTick);
       panViewportToTick(targetTick);
-    }
+	}
+	updateProgress();
   }
 
+const skipToPixel = function(yPixel) {
+
+    if (scorePlaying) {
+      return;
+    }
+
+    const targetTick = yPixel - firstHolePx;
+    const targetProgress = parseFloat(targetTick) / parseFloat(totalTicks);
+
+    skipTo(targetTick, targetProgress)
+}
+
 const skipToProgress = function(event) {
-    const targetProgress = event.target.value;
-    const targetTick = parseInt(targetProgress * parseFloat(totalTicks));
+	const targetProgress = event.target.value;
+	
+	console.log(targetProgress,totalTicks);
+
+	const targetTick = parseInt(parseFloat(targetProgress) * parseFloat(totalTicks));
 
     skipTo(targetTick, targetProgress);
+}
+
+const panViewportToTick = function(tick) {
+    /* PAN VIEWPORT IMAGE */
+
+    // If this is fired from the scrollTimer event (quite likely) the tick
+    // argument will be undefined, so we get it from the player itself.
+    if ((typeof(tick) === 'undefined') || isNaN(tick) || (tick === null)) {
+      tick = samplePlayer.getCurrentTick();
+    }
+
+	let viewportBounds = openSeadragon.viewport.getBounds();
+
+    // Thanks to Craig, MIDI tick numbers correspond to pixels from the first
+    // hole of the roll.
+    let linePx = firstHolePx + tick;
+
+    let lineViewport = openSeadragon.viewport.imageToViewportCoordinates(0,linePx);
+
+    let lineCenter = new OpenSeadragon.Point(viewportBounds.width / 2.0, lineViewport.y);
+    openSeadragon.viewport.panTo(lineCenter);
+
+    let targetProgress = parseFloat(tick) / totalTicks;
+    let playProgress = Math.max(0, targetProgress);
+	let playTick = Math.max(0, tick);
+	
+	currentTick = playTick;
+	currentProgress = playProgress;
+
+	updateProgress();
+
 }
 
 const pressSustainPedal = function() {
@@ -588,8 +659,17 @@ const keyboardToggleKey = function(noteNumber, onIfTrue) {
     }
 }
 
-  // This is for playing notes manually pressed (clicked) on the keyboard
+// This is for playing notes manually pressed (clicked) on the keyboard
 const midiNotePlayer = function(noteNumber, onIfTrue /*, prevActiveNotes*/) {
+
+	if (!ac || !instrument) {
+	  ac = new AudioContext();
+	  Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
+		instrument = inst;
+		midiNotePlayer(noteNumber, onIfTrue);
+	  });
+	  return;
+	}
 
     if (onIfTrue) {
       let updatedVolume = DEFAULT_NOTE_VELOCITY/100.0 * volumeRatio;
@@ -646,7 +726,6 @@ const updateTempoSlider = function(event) {
 
 }
 
-
 const getNoteName = function(noteNumber) {
     const octave = parseInt(noteNumber / 12) - 1;
     noteNumber -= 21;
@@ -681,19 +760,30 @@ Object.keys(recordings_data).forEach((songId, idx) => {
   });
 */
 
-/*
-let openSeadragon = new OpenSeadragon({
-	id: this.state.viewerId,
+document.getElementsByName('osdLair')[0].id = viewerId;
+
+openSeadragon = new OpenSeadragon({
+	id: viewerId,
 	showNavigationControl: false,
-	visibilityRatio: 1
+	panHorizontal: false,
+	visibilityRatio: 1,
+    defaultZoomLevel: HOME_ZOOM,
+    minZoomLevel: .01,
+    maxZoomLevel: 4
   });
 
 openSeadragon.addHandler("canvas-drag", () => {
 	let center = openSeadragon.viewport.getCenter();
 	let centerCoords = openSeadragon.viewport.viewportToImageCoordinates(center);
-	this.skipToPixel(centerCoords.y);
+	skipToPixel(centerCoords.y);
 });
-*/
+
+openSeadragon.addHandler("update-viewport", () => {
+	if (!viewerHomed) {
+		panViewportToTick(0);
+	}
+	viewerHomed = true;
+})
 
 let keyboard_elt = document.querySelector('.keyboard');
 
@@ -718,9 +808,7 @@ verovio.module.onRuntimeInitialized = function() {
 }.bind(this);
 */
 
-ac = new AudioContext();
-
-loadSong(null, currentSongId, ac, vrvToolkit);
+loadSong(null, currentSongId, vrvToolkit);
 
 document.getElementById('playPause').addEventListener("click", playPauseSong, false);
 document.getElementById('stop').addEventListener("click", stopSong, false);

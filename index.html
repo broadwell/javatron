@@ -4,7 +4,7 @@
 </head>
 <body>
   <div class="App">
-    <div class="flex-container" width="1000px">
+    <div class="flex-container main-row">
       <div>
         <div textAlign="left">
           <div>
@@ -12,41 +12,34 @@
               <div id="songOptions"></div>
             </div>
           </div>
-          <strong>Title:</strong> <br />
-          <strong>Performer:</strong> <br />
-          <strong>Composer:</strong> <br />
-          <strong>Label:</strong> <br />
-          <strong>PURL:</strong> <br />
+          <strong>Title: </strong><span id="title"></span> <br />
+          <strong>Performer: </strong><span id="performer"></span> <br />
+          <strong>Composer: </strong><span id="composer"></span> <br />
+          <strong>Label: </strong><span id="label"></span> <br />
+          <strong>PURL: </strong><span id="purl"></span> <br />
+          <strong>Call No: </strong><span id="callno"></span> <br />
         </div>
         <hr />
         <div>Progress:
-          <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" />
+          <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
         </div>
       </div>
       <div>
         <div>
           <div id="instrumentSelector"></div>
         </div>
-        <div textAlign="left">ADSR envelope (experimental):
-          <div>Attack: </div>
-          <div>Decay: </div>
-          <div>Sustain: </div>
-          <div>Release: </div>          
-        </div>
         <hr />
       </div>
     </div>
-    <div class="flex-container" width="1000px">
-      <div height="700px" width="500px">
-        <div id="viewerId" width="100%" height="100%"></div>
-      </div>
-      <div class="score">
-        <div>
+    <div class="flex-row-left main-row">
+      <div name="osdLair" class="osdLair"></div>
+      <div class="score" width="500px" height="600px">
+        <div class="flex-row-left">
           Score playback:
           <button id="playScorePage" name="playPage" onclick="">Start</button>
           <button id="stopScorePage" name="stopPage" onclick="">Stop</button>
         </div>
-        <div>
+        <div class="flex-row-left">
           Score pages:
           <button id="prevScorePage" name="prevPage" onclick="">Prev</button>
           <button id="nextScorePage" name="nextPage" onclick="">Next</button>
@@ -54,12 +47,12 @@
         <div id="currentScorePage"></div>
       </div>
     </div>
-    <div class="keyboard piano-keyboard-horizontal" width="1000px" height="100px"></div>
-    <div class="flex-row" width="1000px">
+    <div class="keyboard piano-keyboard-horizontal"></div>
+    <div class="flex-row main-row">
       <button class="center-button" id="softPedal" name="soft" background="white">SOFT</button>
       <button class="center-button" id="sustainPedal" name="sustain" background="white")>SUST</button>
     </div>
-    <div class="flex-container" display="flex" width="1000px">
+    <div class="flex-container main-row" display="flex">
       <div>
         <button id="playPause" background="white">Play/Pause</button>
         <button id="stop" background="white">Stop</button>
