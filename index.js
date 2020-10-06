@@ -297,7 +297,8 @@ const initPlayer = function() {
     MidiSamplePlayer.on('endOfFile', (function() {
         console.log("END OF FILE");
         stopSong();
-        // Do something when end of the file has been reached.
+		// Do something when end of the file has been reached.
+		panViewportToTick(0);
     }));
 
 	samplePlayer = MidiSamplePlayer;
@@ -492,6 +493,7 @@ const updateProgress = function() {
 		currentProgress = parseFloat(currentTick) / parseFloat(totalTicks);
 	}
 
+	document.getElementById('progressSlider').value = currentProgress;
 	document.getElementById('progressPct').innerText = (currentProgress * 100.).toFixed(2)+"%"
 }
 
