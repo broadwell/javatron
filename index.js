@@ -2,7 +2,7 @@ import MidiPlayer from "midi-player-js"; // Decodes and plays back MIDI data
 import Soundfont from "soundfont-player"; // Generates sounds for MIDI events
 import OpenSeadragon from 'openseadragon';
 import IntervalTree from 'node-interval-tree';
-//import verovio from 'verovio';
+import verovio from 'verovio';
 import { v4 as uuidv4 } from 'uuid';
 import Keyboard from 'piano-keyboard';
 
@@ -23,9 +23,10 @@ const recordings_data = { 'zb497jz4405': { 'slug': 'mozart_rondo_alla_turca', 't
 
 let AudioContext = window.AudioContext || window.webkitAudioContext || false; 
 let ac = null; // Audio Context
-let currentSong = null;
+let currentRecording = null;
 let rollMetadata = {};
 let samplePlayer = null; // the MIDI player
+let scorePlayer = null;
 let playState = "stopped";
 let instrument = null;
 let adsr = ADSR_SAMPLE_DEFAULTS;
@@ -54,105 +55,111 @@ let openSeadragon = null;
 let firstHolePx = 0;
 let scrollTimer = null;
 let viewerId = uuidv4();
-let viewerHomed = false; // Hack to get OSD to scroll to tick 0 after load
 
 let scorePages = [];
-let scoreMidi = [];
+let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentSongId = Object.keys(recordings_data)[1];
+let currentRecordingId = Object.keys(recordings_data)[1];
 let vrvToolkit = null;
-let songOptions = []; // Elements for menu of songs to play
+let RecordingOptions = []; // Elements for menu of Recordings to play
 
 let keyboard = null;
 
 
-const loadSong = function(e, currentSongId) {
+const loadRecording = function(e, currentRecordingId) {
 
     if (e) {
-      currentSongId = e.target.value;
+      currentRecordingId = e.target.value;
 	}
+
+	if (samplePlayer && samplePlayer.isPlaying()) {
+		samplePlayer.stop();
+	}
+	if (scrollTimer) {
+		clearInterval(scrollTimer);
+		scrollTimer = null;
+	}
+
+	openSeadragon.addOnceHandler("update-viewport", () => {
+		panViewportToTick(0);
+	});
 	
-	viewerHomed = false;
+	console.log("loading Recording ID", currentRecordingId);
+	
+	document.getElementById('recordings').value = currentRecordingId;
 
-    console.log("loading song ID", currentSongId);
+    let recordingSlug = recordings_data[currentRecordingId]['slug'];
+    currentRecording = midiData[recordingSlug];
 
-    let songSlug = recordings_data[currentSongId]['slug'];
-    currentSong = midiData[songSlug];
-
-	console.log("osd loading image URL",recordings_data[currentSongId]['image_url']);
-	openSeadragon.open(recordings_data[currentSongId]['image_url']);
-
+	openSeadragon.open(recordings_data[currentRecordingId]['image_url']);
+    
 	initPlayer();
 
 	/* load the MEI data as string into the toolkit */
-	//vrvToolkit.loadData(scoreData[songSlug]);
+	vrvToolkit.loadData(scoreData[recordingSlug]);
 	
 	/* render the fist page as SVG */
-	/*
-    let scorePages = [];
+    scorePages = [];
     for (let i=1; i<=vrvToolkit.getPageCount(); i++) {
       scorePages.push(vrvToolkit.renderToSVG(i, {}));
-    }
-	let scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
-	*/
+	}
+	
+    document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+
+	scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
 
 	/* Instantiate the score MIDI player */
-	/*
-    let MidiSamplePlayer = new MidiPlayer.Player();
+    scorePlayer = new MidiPlayer.Player();
 
-    MidiSamplePlayer.on('fileLoaded', () => {
-      this.setState({ scorePlayer: MidiSamplePlayer, highlightedNotes: [] });
-    });
+	scorePlayer.on('midiEvent', function(e) {
 
-	MidiSamplePlayer.on('midiEvent', function(e) {
+		const timeMultiplier = parseFloat(scorePlayer.getSongTime() * 1000.0) / parseFloat(scorePlayer.totalTicks);
 
-		const timeMultiplier = parseFloat(MidiSamplePlayer.getSongTime() * 1000.0) / parseFloat(MidiSamplePlayer.totalTicks);
-  
 		let vrvTime = parseInt(e.tick*timeMultiplier) + 1;
-  
+
 		let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
-  
-		let lastNoteIds = this.state.highlightedNotes;
+
+		let lastNoteIds = highlightedNotes;
 		if (lastNoteIds && lastNoteIds.length > 0) {
-		  lastNoteIds.forEach((noteId) => {
-			let noteElt = document.getElementById(noteId);
-			noteElt.setAttribute("style", "fill: #000");
-		  });
+			lastNoteIds.forEach((noteId) => {
+				let noteElt = document.getElementById(noteId);
+				if (noteElt) {
+				noteElt.setAttribute("style", "fill: #000");
+				}
+			});
 		}
-  
+
 		if (elementsattime.page > 0) {
-		  if (elementsattime.page != this.state.currentScorePage) {
-			let page = elementsattime.page;
-			this.setState({currentScorePage: page});
-		  }
+			if (elementsattime.page != currentScorePage) {
+				currentScorePage = elementsattime.page;
+				document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+			}
 		}
-  
+
 		let noteIds = elementsattime.notes;
 		if (noteIds && noteIds.length > 0) {
-		  noteIds.forEach((noteId) => {
-			let noteElt = document.getElementById(noteId);
-			if (noteElt) {
-			  noteElt.setAttribute("style", "fill: #c00");
-			}
-		  });
+			noteIds.forEach((noteId) => {
+				let noteElt = document.getElementById(noteId);
+				if (noteElt) {
+					noteElt.setAttribute("style", "fill: #c00");
+				}
+			});
 		}
-		this.setState({ highlightedNotes: noteIds });
-  
-		this.midiEvent(e);
-	  }.bind(this));
-  
-	  MidiSamplePlayer.on('endOfFile', function() {
+		highlightedNotes = noteIds;
+
+		midiEvent(e);
+	});
+
+	scorePlayer.on('endOfFile', function() {
 		console.log("END OF FILE");
-		this.playScore(false);
+		playScore(false);
 		// Do something when end of the file has been reached.
-	  }.bind(this));
+	});
 
-	  // Load MIDI data
-      MidiSamplePlayer.loadDataUri(scoreMIDI);
-
-	*/
+	// Load MIDI data
+	scorePlayer.loadDataUri(scoreMIDI);
 
 	updateProgress();
 
@@ -249,7 +256,7 @@ const initPlayer = function() {
 	  document.getElementById('composer').innerText = rollMetadata['COMPOSER'];
 	  document.getElementById('label').innerText = rollMetadata['LABEL'];
 	  document.getElementById('purl').innerHTML = '<a href="' + rollMetadata['PURL'] + '">' + rollMetadata['PURL'] + '</a>';
-	  document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+	//   document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
 
       firstHolePx = parseInt(rollMetadata['FIRST_HOLE']);
       lastHolePx = parseInt(rollMetadata['LAST_HOLE']);
@@ -257,29 +264,18 @@ const initPlayer = function() {
 	  
 	  let rollWidth = parseInt(rollMetadata['ROLL_WIDTH']);
 
-	  /*
-	  let bounds = openSeadragon.viewport.getBounds();
-	  console.log("VIEWPORT BOUNDS",bounds,"FIRST HOLE PX",firstHolePx);
-	  let firstLine = openSeadragon.viewport.imageToViewportCoordinates(0,firstHolePx);
-	  console.log("FIRST HOLE IN VIEWPORT COORDS",firstLine);
-	  let firstCenter = new OpenSeadragon.Point(bounds.width / 2.0, firstLine.y);
-	  console.log("FIRST CENTER",firstCenter);
-	  openSeadragon.viewport.panTo(firstCenter);
-	  */
-
-
       /*
       // Play line can be drawn via CSS (though not as accurately), but very
       // similar code to this would be used to show other overlays, e.g., to
       // "fill" in actively playing notes and other mechanics. Performance is
       // an issue, though.
-      let startBounds = this.state.openSeadragon.viewport.getBounds();
+      let startBounds = openSeadragon.viewport.getBounds();
       let playPoint = new OpenSeadragon.Point(0, startBounds.y + (startBounds.height / 2.0));
-      let playLine = this.state.openSeadragon.viewport.viewer.getOverlayById('play-line');
+      let playLine = openSeadragon.viewport.viewer.getOverlayById('play-line');
       if (!playLine) {
         playLine = document.createElement("div");
         playLine.id = "play-line";
-        this.state.openSeadragon.viewport.viewer.addOverlay(playLine, playPoint, OpenSeadragon.Placement.TOP_LEFT);
+        openSeadragon.viewport.viewer.addOverlay(playLine, playPoint, OpenSeadragon.Placement.TOP_LEFT);
       } else {
         playLine.update(playPoint, OpenSeadragon.Placement.TOP_LEFT);
       }
@@ -296,7 +292,7 @@ const initPlayer = function() {
     
     MidiSamplePlayer.on('endOfFile', (function() {
         console.log("END OF FILE");
-        stopSong();
+        stopPlayback();
 		// Do something when end of the file has been reached.
 		panViewportToTick(0);
     }));
@@ -304,7 +300,7 @@ const initPlayer = function() {
 	samplePlayer = MidiSamplePlayer;
 
     /* Load MIDI data */
-	samplePlayer.loadDataUri(currentSong);
+	samplePlayer.loadDataUri(currentRecording);
 
 	totalTicks = samplePlayer.totalTicks;
 
@@ -319,15 +315,15 @@ const midiEvent = function(event) {
     if (event.name === 'Note on') {
 
       const noteNumber = event.noteNumber;
-      //const noteName = this.getNoteName(noteNumber);
+      //const noteName = getNoteName(noteNumber);
       let noteVelocity = event.velocity;
 
       // Note off
       if (noteVelocity === 0) {
-        console.log("OFF",noteNumber,getNoteName(noteNumber));
-        if (sustainedNotes.includes(noteNumber)) {
+        //console.log("OFF",noteNumber,getNoteName(noteNumber));
+        /*if (sustainedNotes.includes(noteNumber)) {
           console.log("SUSTAIN PEDAL IS ON, KEEPING NOTE PLAYING");
-        }
+        }*/
 
         if (!sustainedNotes.includes(noteNumber)) {
           try {
@@ -335,7 +331,6 @@ const midiEvent = function(event) {
           } catch(error) {
 			console.log("COULDN'T STOP",noteNumber,getNoteName(noteNumber));
 			console.log(error,activeAudioNodes[noteNumber]);
-            //this.setState({ adsr: ADSR_SAMPLE_DEFAULTS });
           }
           delete activeAudioNodes[noteNumber];
         }
@@ -347,9 +342,9 @@ const midiEvent = function(event) {
       
       // Note on
       } else {
-        console.log("ON",noteNumber,getNoteName(noteNumber))
+        //console.log("ON",noteNumber,getNoteName(noteNumber))
         if (sustainedNotes.includes(noteNumber)) {
-          console.log("NOTE STILL SUSTAINED WHEN RE-TOUCHED, STOPPING");
+          //console.log("NOTE STILL SUSTAINED WHEN RE-TOUCHED, STOPPING");
           try {
             activeAudioNodes[noteNumber].stop();
           } catch {
@@ -416,31 +411,30 @@ const midiEvent = function(event) {
         // presumably bass and treble. These values are a bit odd
         // however and it's not clear how to use them, e.g.,
         // track 2: value = 52, track 3: value = 76
-        //this.setState({ panBoundary: event.value });
+        panBoundary = event.value;
       }
     } else if (event.name === "Set Tempo") {
 
-      const tempoRatio = 1 + (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
-	  const playbackTempo = parseFloat(sliderTempo) * tempoRatio;
+      tempoRatio = 1 + (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
+	  playbackTempo = parseFloat(sliderTempo) * tempoRatio;
 	  
 	  console.log("SETTING PLAYBACK TEMPO TO", playbackTempo)
 
       samplePlayer.setTempo(playbackTempo);
-      //scorePlayer.setTempo(playbackTempo);
+      scorePlayer.setTempo(playbackTempo);
     }
 
     // The scrollTimer should ensure that the roll is synchronized with
     // playback; syncing at every note effect also can cause problems
     // on certain browsers if the playback events start to lag behind
     // their scheduled times.
-    //this.panViewportToTick(event.tick);
+    //panViewportToTick(event.tick);
 
 }
 
-const playPauseSong = function() {
+const playPausePlayback = function() {
 
     if (samplePlayer.isPlaying()) {
-	  console.log("Pausing song");
       samplePlayer.pause();
 	  clearInterval(scrollTimer);
 	  playState = "paused";
@@ -464,7 +458,7 @@ const playPauseSong = function() {
     }
 }
 
-const stopSong = function() {
+const stopPlayback = function() {
     if (samplePlayer.isPlaying() || (playState === "paused")) {
 
       samplePlayer.stop();
@@ -502,12 +496,9 @@ const skipTo = function(targetTick, targetProgress) {
       return;
 	}
 	
-	console.log("SKIPPING TO",targetTick,targetProgress);
-
     let playTick = Math.max(0, targetTick);
     let playProgress = Math.max(0, targetProgress);
 
-	/*
     if (scorePlaying) {
       scorePlayer.pause();
       scorePlayer.skipToTick(playTick);
@@ -517,9 +508,9 @@ const skipTo = function(targetTick, targetProgress) {
 	  sustainedNotes = [];
 	  currentProgress = playProgress;
 	  scorePlayer.play();
+	  updateProgress();
       return;
 	}
-	*/
 
     const pedalsOn = pedalMap.search(playTick, playTick);
 
@@ -557,8 +548,6 @@ const skipToPixel = function(yPixel) {
 const skipToProgress = function(event) {
 	const targetProgress = event.target.value;
 	
-	console.log(targetProgress,totalTicks);
-
 	const targetTick = parseInt(parseFloat(targetProgress) * parseFloat(totalTicks));
 
     skipTo(targetTick, targetProgress);
@@ -605,7 +594,7 @@ const pressSustainPedal = function() {
         sustainedNotes.push(noteNumber)
       }
 	});
-	console.log("SUSTAIN ON");
+	//console.log("SUSTAIN ON");
 	sustainPedalOn = true;
 	document.getElementById("sustainPedal").classList.add("pressed");
 }
@@ -614,7 +603,7 @@ const releaseSustainPedal = function() {
     sustainedNotes.forEach((noteNumber) => {
       if (!(activeNotes.includes(parseInt(noteNumber)))) {
         // XXX Maybe use a slower release velocity for pedal events?
-        console.log("NOTE OFF AT SUSTAIN PEDAL RELEASE",noteNumber,getNoteName(noteNumber));
+        //console.log("NOTE OFF AT SUSTAIN PEDAL RELEASE",noteNumber,getNoteName(noteNumber));
         try {
           activeAudioNodes[noteNumber].stop();
         } catch {
@@ -624,7 +613,7 @@ const releaseSustainPedal = function() {
       }
 	});
 	sustainPedalOn = false;
-	console.log("SUSTAIN OFF");
+	//console.log("SUSTAIN OFF");
 	sustainedNotes = [];
 	document.getElementById("sustainPedal").classList.remove("pressed");
 }
@@ -707,7 +696,7 @@ const midiNotePlayer = function(noteNumber, onIfTrue /*, prevActiveNotes*/) {
 
 const updateTempoSlider = function(event) {
 
-    const playbackTempo = event.target.value * tempoRatio;
+    playbackTempo = event.target.value * tempoRatio;
 
     if (scorePlaying) {
       scorePlayer.pause();
@@ -719,12 +708,109 @@ const updateTempoSlider = function(event) {
 
     // If not paused during tempo change, player jumps back a bit on
     // shift to slower playback tempo, forward on shift to faster tempo.
-    // So we pause it.
-    samplePlayer.pause();
-    samplePlayer.setTempo(playbackTempo);
-	samplePlayer.play();
+	// So we pause it.
+
+	if (samplePlayer.isPlaying()) {
+	  samplePlayer.pause();
+      samplePlayer.setTempo(playbackTempo);
+	  samplePlayer.play();
+	} else {
+	  samplePlayer.setTempo(playbackTempo);
+	}
 
 	sliderTempo = event.target.value;
+
+	document.getElementById("tempo").innerText = sliderTempo + " bpm";
+}
+
+const updateVolumeSlider = function(event) {
+
+	let sliderName = event.target.name;
+
+    if (sliderName === "volume") {
+		volumeRatio = event.target.value;
+	} else if (sliderName === "leftVolume") {
+		leftVolumeRatio = event.target.value;
+	} else if (sliderName === "rightVolume") {
+		rightVolumeRatio = event.target.value;
+	}
+
+}
+
+const changeInstrument = function(e) {
+    const newInstName = e.target.value;
+
+    // XXX This mostly works, except that when switching back to the
+    // acoustic_grand_piano, the bright_acoustic_piano plays instead.
+    // Possibly this problem is rooted in how the soundfonts are
+    // defined, i.e., if the bright_acoustic is just a modification of
+    // the samples in acoustic_grand, the system may erroneously
+	// assume they're the same...
+	if (ac) {
+		ac.close().then(() => {
+			ac = new AudioContext();
+			Soundfont.instrument(ac, newInstName, { soundfont: 'FluidR3_GM' }).then(
+				(inst) => {
+					instrument = inst;
+					sampleInst = newInstName;
+				});
+		});
+	} else {
+		ac = new AudioContext();
+		Soundfont.instrument(ac, newInstName, { soundfont: 'FluidR3_GM' }).then(
+			(inst) => {
+				instrument = inst;
+				sampleInst = newInstName;
+			});
+	}
+  }
+
+const scorePlayback = function(e) {
+	if ((e.target.name === "playScore") && (!scorePlaying) && (!samplePlayer.isPlaying())) {
+
+		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
+		scorePlaying = true;
+		currentScorePage = 1;
+		document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+		activeNotes = [];
+		totalTicks = scorePlayer.totalTicks;
+
+		if (!instrument) {
+			ac = new AudioContext();
+			Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
+				instrument = inst;
+				scorePlayer.play();
+			});
+		} else {
+			scorePlayer.play();
+		}
+		
+	} else if ((e.target.name === "stopScore") && (scorePlaying)) {
+		scorePlaying = false;
+		scorePlayer.stop();
+
+		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
+	
+		activeAudioNodes = {};
+		activeNotes = [];
+		sustainedNotes = [];
+		currentProgress = 0;
+		highlightedNotes = [];
+		totalTicks = samplePlayer.totalTicks;
+	}
+}
+
+const changeScorePage = function(e) {
+    if (scorePlaying) {
+		return;
+	}
+	if ((e.target.name == "prevPage") && (currentScorePage > 1)) {
+		currentScorePage--;
+		document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+	} else if ((e.target.name == "nextPage") && (currentScorePage < scorePages.length)) {
+		currentScorePage++;
+	    document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+	}
 
 }
 
@@ -756,11 +842,6 @@ const getMidiNumber = function(noteName) {
 }
 
 /* INIT */
-/*
-Object.keys(recordings_data).forEach((songId, idx) => {
-	songOptions.push(<option key={recordings_data[songId]['slug']} value={songId}>{recordings_data[songId]['title']}</option>)
-  });
-*/
 
 document.getElementsByName('osdLair')[0].id = viewerId;
 
@@ -780,13 +861,6 @@ openSeadragon.addHandler("canvas-drag", () => {
 	skipToPixel(centerCoords.y);
 });
 
-openSeadragon.addHandler("update-viewport", () => {
-	if (!viewerHomed) {
-		panViewportToTick(0);
-	}
-	viewerHomed = true;
-})
-
 let keyboard_elt = document.querySelector('.keyboard');
 
 keyboard = new Keyboard({
@@ -800,22 +874,52 @@ keyboard.on('noteOn', function ({which, volume, target}) {
 			.on('noteOff', function ({which, volume, target}) {
 				midiNotePlayer(which+20, false)});
 
-/*
+let instChooser = document.getElementById("sampleInstrument");
+instChooser.value = sampleInst;
+instChooser.onchange = changeInstrument;
+
+let recordingsChooser = document.getElementById("recordings");
+recordingsChooser.onchange = loadRecording;
+for (const recId in recordings_data) {
+	let opt = document.createElement("option");
+	opt.value = recId;
+	opt.text = recordings_data[recId]['title']
+	recordingsChooser.appendChild(opt);
+}
+
+let tempoSlider = document.getElementById("tempoSlider");
+tempoSlider.value = sliderTempo;
+tempoSlider.onchange = updateTempoSlider;
+
+document.getElementById("masterVolumeSlider").value = volumeRatio;
+document.getElementById("leftVolumeSlider").value = leftVolumeRatio;
+document.getElementById("rightVolumeSlider").value = leftVolumeRatio;
+
+
 verovio.module.onRuntimeInitialized = function() {
 
 	///create the toolkit instance
-	let vrvToolkit = new verovio.toolkit();
+	vrvToolkit = new verovio.toolkit();
 
-	this.loadSong(null, this.state.currentSongId, ac, vrvToolkit);
-}.bind(this);
-*/
+	loadRecording(null, currentRecordingId);
+};
 
-loadSong(null, currentSongId, vrvToolkit);
+document.getElementById("masterVolumeSlider").onchange = updateVolumeSlider;
+document.getElementById("leftVolumeSlider").onchange = updateVolumeSlider;
+document.getElementById("rightVolumeSlider").onchange = updateVolumeSlider;
 
-document.getElementById('playPause').addEventListener("click", playPauseSong, false);
-document.getElementById('stop').addEventListener("click", stopSong, false);
+document.getElementById("tempo").innerText = sliderTempo + " bpm";
+
+document.getElementById('playPause').addEventListener("click", playPausePlayback, false);
+document.getElementById('stop').addEventListener("click", stopPlayback, false);
 
 document.getElementById('sustainPedal').addEventListener("click", togglePedalLock, false);
 document.getElementById('softPedal').addEventListener("click", togglePedalLock, false);
 
 document.getElementById('progressSlider').addEventListener("input", skipToProgress, false);
+
+document.getElementById('prevScorePage').addEventListener("click", changeScorePage, false);
+document.getElementById('nextScorePage').addEventListener("click", changeScorePage, false);
+
+document.getElementById('playScorePage').addEventListener("click", scorePlayback, false);
+document.getElementById('stopScorePage').addEventListener("click", scorePlayback, false);

@@ -33,7 +33,16 @@ body {
 	display: flex;
 	flex-direction: row;
 	justify-content: flex-start;
-} 
+}
+
+.indented-row {
+	padding-left: 10vw;
+}
+
+.flex-row-left > button {
+	margin-left: 0px;
+	margin-right: 0px;
+}
 
 a {
 	text-decoration: none;
