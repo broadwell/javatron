@@ -74,13 +74,21 @@ const loadRecording = function(e, currentRecordingId) {
       currentRecordingId = e.target.value;
 	}
 
-	if (samplePlayer && samplePlayer.isPlaying()) {
+	if (samplePlayer && (samplePlayer.isPlaying() || (playState === "paused"))) {
 		samplePlayer.stop();
 	}
 	if (scrollTimer) {
 		clearInterval(scrollTimer);
 		scrollTimer = null;
-	}
+  }
+  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
+  activeAudioNodes = {};
+  activeNotes = [];
+  sustainedNotes = [];
+  highlightedNotes = [];
+  releaseSustainPedal();
+  softPedalOn = false;
+  document.getElementById("softPedal").classList.remove("pressed");
 
 	openSeadragon.addOnceHandler("update-viewport", () => {
 		panViewportToTick(0);
@@ -330,7 +338,7 @@ const midiEvent = function(event) {
             activeAudioNodes[noteNumber].stop(ac.currentTime);
           } catch(error) {
 			console.log("COULDN'T STOP",noteNumber,getNoteName(noteNumber));
-			console.log(error,activeAudioNodes[noteNumber]);
+			console.log(error);
           }
           delete activeAudioNodes[noteNumber];
         }
@@ -434,6 +442,10 @@ const midiEvent = function(event) {
 
 const playPausePlayback = function() {
 
+    if (scorePlaying) {
+      return;
+    }
+
     if (samplePlayer.isPlaying()) {
       samplePlayer.pause();
 	  clearInterval(scrollTimer);
@@ -441,20 +453,20 @@ const playPausePlayback = function() {
 	  scrollTimer = null;
     } else {
       openSeadragon.viewport.zoomTo(HOME_ZOOM);
-	  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	  playState = "playing";
-	  // XXX Consider setting a timer to recycle AudioContext and sample player
-	  // periodically to avoid Firefox fuzzout issue. This likely would case a
-	  // noticeable skip during playback when it happens, though. 
-	  if (ac) {
-		ac.close();
-	  }
-	  ac = new AudioContext();
-	  Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-		instrument = inst;
-		scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
-		samplePlayer.play();
-	  });
+	    activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
+	    playState = "playing";
+	    // XXX Consider setting a timer to recycle AudioContext and sample player
+	    // periodically to avoid Firefox fuzzout issue. This likely would case a
+	    // noticeable skip during playback when it happens, though. 
+	    if (ac) {
+		    ac.close();
+	    }
+	    ac = new AudioContext();
+	    Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
+		    instrument = inst;
+		    scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
+		    samplePlayer.play();
+	    });
     }
 }
 
@@ -470,12 +482,12 @@ const stopPlayback = function() {
 			scrollTimer = null;
 			activeAudioNodes = {};
 			activeNotes = [];
-			sustainedNotes = [];
-			sustainPedalOn = false;
-			softPedalOn = false;
+      releaseSustainPedal();
+      softPedalOn = false;
+      document.getElementById("softPedal").classList.remove("pressed");
   
-		    ac = null;
-		    instrument = null;
+		  ac = null;
+		  instrument = null;
 	  });
 
     }
@@ -494,7 +506,7 @@ const updateProgress = function() {
 const skipTo = function(targetTick, targetProgress) {
     if (!(samplePlayer || scorePlayer)) {
       return;
-	}
+	  }
 	
     let playTick = Math.max(0, targetTick);
     let playProgress = Math.max(0, targetProgress);
@@ -503,14 +515,14 @@ const skipTo = function(targetTick, targetProgress) {
       scorePlayer.pause();
       scorePlayer.skipToTick(playTick);
       activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	  activeAudioNodes = {};
-	  activeNotes = [];
-	  sustainedNotes = [];
-	  currentProgress = playProgress;
-	  scorePlayer.play();
-	  updateProgress();
-      return;
-	}
+      activeAudioNodes = {};
+      activeNotes = [];
+      sustainedNotes = [];
+      currentProgress = playProgress;
+      scorePlayer.play();
+      updateProgress();
+        return;
+    }
 
     const pedalsOn = pedalMap.search(playTick, playTick);
 
@@ -520,18 +532,18 @@ const skipTo = function(targetTick, targetProgress) {
     if (samplePlayer.isPlaying()) {
       samplePlayer.pause();
       samplePlayer.skipToTick(playTick);
-	  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	  activeAudioNodes = {};
-	  activeNotes = [];
-	  sustainedNotes = [];
-	  currentProgress = playProgress;
+      activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
+      activeAudioNodes = {};
+      activeNotes = [];
+      sustainedNotes = [];
+      currentProgress = playProgress;
       samplePlayer.play();
     } else {
       samplePlayer.skipToTick(playTick);
       panViewportToTick(targetTick);
 	}
 	updateProgress();
-  }
+}
 
 const skipToPixel = function(yPixel) {
 
@@ -630,13 +642,13 @@ function togglePedalLock(event) {
         pressSustainPedal();
       }
     } else if (pedalName === "soft") {
-	  softPedalLocked = !softPedalLocked;
-	  softPedalOn = softPedalLocked;
-	  if (softPedalOn) {
-		document.getElementById("softPedal").classList.add("pressed");
-	  } else {
-		document.getElementById("softPedal").classList.remove("pressed");
-	  }
+        softPedalLocked = !softPedalLocked;
+        softPedalOn = softPedalLocked;
+      if (softPedalOn) {
+        document.getElementById("softPedal").classList.add("pressed");
+      } else {
+        document.getElementById("softPedal").classList.remove("pressed");
+      }
     }
 }
 
@@ -763,10 +775,10 @@ const changeInstrument = function(e) {
 				sampleInst = newInstName;
 			});
 	}
-  }
+}
 
 const scorePlayback = function(e) {
-	if ((e.target.name === "playScore") && (!scorePlaying) && (!samplePlayer.isPlaying())) {
+	if ((e.target.name === "playScore") && (!scorePlaying) && (!samplePlayer.isPlaying()) && (playState !== "paused")) {
 
 		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
 		scorePlaying = true;
@@ -791,11 +803,28 @@ const scorePlayback = function(e) {
 
 		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
 	
-		activeAudioNodes = {};
 		activeNotes = [];
 		sustainedNotes = [];
 		currentProgress = 0;
-		highlightedNotes = [];
+    releaseSustainPedal();
+    softPedalOn = false;
+    document.getElementById("softPedal").classList.remove("pressed");
+
+    for (const nodeId in activeAudioNodes) {
+      activeAudioNodes[nodeId].stop();
+    }
+
+		if (highlightedNotes && highlightedNotes.length > 0) {
+			highlightedNotes.forEach((noteId) => {
+				let noteElt = document.getElementById(noteId);
+				if (noteElt) {
+				noteElt.setAttribute("style", "fill: #000");
+				}
+			});
+    }
+    
+    highlightedNotes = [];
+
 		totalTicks = samplePlayer.totalTicks;
 	}
 }
