@@ -18,8 +18,9 @@ let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
 
 const recordings_data = { 'zb497jz4405': { 'slug': 'mozart_rondo_alla_turca', 'title': 'Mozart/Reinecke - Türkischer Marsch', 'image_url': 'https://stacks.stanford.edu/image/iiif/zb497jz4405%2Fzb497jz4405_0001/info.json' },
-                          'yj598pj2879': { 'slug': 'liszt_soirees_de_vienne', 'title': 'Liszt/Carreño - Soirées de Vienne, no. 6', 'image_url': 'https://stacks.stanford.edu/image/iiif/yj598pj2879%2Fyj598pj2879_0001/info.json' }
-						}
+                          'yj598pj2879': { 'slug': 'liszt_soirees_de_vienne', 'title': 'Liszt/Carreño - Soirées de Vienne, no. 6', 'image_url': 'https://stacks.stanford.edu/image/iiif/yj598pj2879%2Fyj598pj2879_0001/info.json' },
+                          'pz594dj8436': { 'slug': 'alonso_las_corsarias', 'title': 'F. Alonso: Las corsarias: Selecciones', 'image_url': 'https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json' }
+						            }
 
 let AudioContext = window.AudioContext || window.webkitAudioContext || false; 
 let ac = null; // Audio Context
@@ -61,17 +62,19 @@ let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentRecordingId = Object.keys(recordings_data)[1];
+let currentRecordingId = Object.keys(recordings_data)[2];
 let vrvToolkit = null;
 let RecordingOptions = []; // Elements for menu of Recordings to play
+
+let scrollUp = false;
 
 let keyboard = null;
 
 
 const loadRecording = function(e, currentRecordingId) {
 
-    if (e) {
-      currentRecordingId = e.target.value;
+  if (e) {
+    currentRecordingId = e.target.value;
 	}
 
 	if (samplePlayer && (samplePlayer.isPlaying() || (playState === "paused"))) {
@@ -103,71 +106,77 @@ const loadRecording = function(e, currentRecordingId) {
 
 	openSeadragon.open(recordings_data[currentRecordingId]['image_url']);
     
-	initPlayer();
+  initPlayer();
+  
+  scorePlayer = null;
 
-	/* load the MEI data as string into the toolkit */
-	vrvToolkit.loadData(scoreData[recordingSlug]);
+  /* load the MEI data as string into the toolkit */
+  if (recordingSlug in scoreData) {
+
+	  vrvToolkit.loadData(scoreData[recordingSlug]);
 	
-	/* render the fist page as SVG */
+	  /* render the fist page as SVG */
     scorePages = [];
     for (let i=1; i<=vrvToolkit.getPageCount(); i++) {
       scorePages.push(vrvToolkit.renderToSVG(i, {}));
-	}
+	  }
 	
     document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
 
-	scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
+	  scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
 
-	/* Instantiate the score MIDI player */
+	  /* Instantiate the score MIDI player */
     scorePlayer = new MidiPlayer.Player();
 
-	scorePlayer.on('midiEvent', function(e) {
+    scorePlayer.on('midiEvent', function(e) {
 
-		const timeMultiplier = parseFloat(scorePlayer.getSongTime() * 1000.0) / parseFloat(scorePlayer.totalTicks);
+      const timeMultiplier = parseFloat(scorePlayer.getSongTime() * 1000.0) / parseFloat(scorePlayer.totalTicks);
 
-		let vrvTime = parseInt(e.tick*timeMultiplier) + 1;
+      let vrvTime = parseInt(e.tick*timeMultiplier) + 1;
 
-		let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
+      let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
 
-		let lastNoteIds = highlightedNotes;
-		if (lastNoteIds && lastNoteIds.length > 0) {
-			lastNoteIds.forEach((noteId) => {
-				let noteElt = document.getElementById(noteId);
-				if (noteElt) {
-				noteElt.setAttribute("style", "fill: #000");
-				}
-			});
-		}
+      let lastNoteIds = highlightedNotes;
+      if (lastNoteIds && lastNoteIds.length > 0) {
+        lastNoteIds.forEach((noteId) => {
+          let noteElt = document.getElementById(noteId);
+          if (noteElt) {
+          noteElt.setAttribute("style", "fill: #000");
+          }
+        });
+      }
 
-		if (elementsattime.page > 0) {
-			if (elementsattime.page != currentScorePage) {
-				currentScorePage = elementsattime.page;
-				document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
-			}
-		}
+      if (elementsattime.page > 0) {
+        if (elementsattime.page != currentScorePage) {
+          currentScorePage = elementsattime.page;
+          document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+        }
+      }
 
-		let noteIds = elementsattime.notes;
-		if (noteIds && noteIds.length > 0) {
-			noteIds.forEach((noteId) => {
-				let noteElt = document.getElementById(noteId);
-				if (noteElt) {
-					noteElt.setAttribute("style", "fill: #c00");
-				}
-			});
-		}
-		highlightedNotes = noteIds;
+      let noteIds = elementsattime.notes;
+      if (noteIds && noteIds.length > 0) {
+        noteIds.forEach((noteId) => {
+          let noteElt = document.getElementById(noteId);
+          if (noteElt) {
+            noteElt.setAttribute("style", "fill: #c00");
+          }
+        });
+      }
+      highlightedNotes = noteIds;
 
-		midiEvent(e);
-	});
+      midiEvent(e);
+    });
 
-	scorePlayer.on('endOfFile', function() {
-		console.log("END OF FILE");
-		playScore(false);
-		// Do something when end of the file has been reached.
-	});
+    scorePlayer.on('endOfFile', function() {
+      console.log("END OF FILE");
+      playScore(false);
+      // Do something when end of the file has been reached.
+    });
 
-	// Load MIDI data
-	scorePlayer.loadDataUri(scoreMIDI);
+    // Load MIDI data
+    scorePlayer.loadDataUri(scoreMIDI);
+
+  }
 
 	updateProgress();
 
@@ -257,17 +266,28 @@ const initPlayer = function() {
             rollMetadata[found.groups.key] = found.groups.value;
           }
         });
-	  });
+    });
+    
+    console.log(rollMetadata);
 
 	  document.getElementById('title').innerText = rollMetadata['TITLE'];
 	  document.getElementById('performer').innerText = rollMetadata['PERFORMER'];
 	  document.getElementById('composer').innerText = rollMetadata['COMPOSER'];
 	  document.getElementById('label').innerText = rollMetadata['LABEL'];
 	  document.getElementById('purl').innerHTML = '<a href="' + rollMetadata['PURL'] + '">' + rollMetadata['PURL'] + '</a>';
-	//   document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+  //   document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+  
+    scrollUp = false;
+    if (rollMetadata['ROLL_TYPE'] !== "welte-red") {
+      scrollUp = true;
+    }
 
-      firstHolePx = parseInt(rollMetadata['FIRST_HOLE']);
-      lastHolePx = parseInt(rollMetadata['LAST_HOLE']);
+    firstHolePx = parseInt(rollMetadata['FIRST_HOLE']);
+    if (scrollUp) {
+      firstHolePx = parseInt(rollMetadata['IMAGE_LENGTH']) - firstHolePx;
+    }
+
+    lastHolePx = parseInt(rollMetadata['LAST_HOLE']);
 	  holeWidthPx = parseInt(rollMetadata['AVG_HOLE_WIDTH']);
 	  
 	  let rollWidth = parseInt(rollMetadata['ROLL_WIDTH']);
@@ -429,7 +449,9 @@ const midiEvent = function(event) {
 	  console.log("SETTING PLAYBACK TEMPO TO", playbackTempo)
 
       samplePlayer.setTempo(playbackTempo);
-      scorePlayer.setTempo(playbackTempo);
+      if (scorePlayer) {
+        scorePlayer.setTempo(playbackTempo);
+      }
     }
 
     // The scrollTimer should ensure that the roll is synchronized with
@@ -511,7 +533,7 @@ const skipTo = function(targetTick, targetProgress) {
     let playTick = Math.max(0, targetTick);
     let playProgress = Math.max(0, targetProgress);
 
-    if (scorePlaying) {
+    if (scorePlayer && scorePlaying) {
       scorePlayer.pause();
       scorePlayer.skipToTick(playTick);
       activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
@@ -540,7 +562,7 @@ const skipTo = function(targetTick, targetProgress) {
       samplePlayer.play();
     } else {
       samplePlayer.skipToTick(playTick);
-      panViewportToTick(targetTick);
+      //panViewportToTick(targetTick);
 	}
 	updateProgress();
 }
@@ -551,7 +573,11 @@ const skipToPixel = function(yPixel) {
       return;
     }
 
-    const targetTick = yPixel - firstHolePx;
+    let targetTick = yPixel - firstHolePx;
+    if (scrollUp) {
+      targetTick = firstHolePx - yPixel;
+    }
+
     const targetProgress = parseFloat(targetTick) / parseFloat(totalTicks);
 
     skipTo(targetTick, targetProgress)
@@ -574,11 +600,15 @@ const panViewportToTick = function(tick) {
       tick = samplePlayer.getCurrentTick();
     }
 
-	let viewportBounds = openSeadragon.viewport.getBounds();
+	  let viewportBounds = openSeadragon.viewport.getBounds();
 
     // Thanks to Craig, MIDI tick numbers correspond to pixels from the first
     // hole of the roll.
+
     let linePx = firstHolePx + tick;
+    if (scrollUp) {
+      linePx = firstHolePx - tick;
+    }
 
     let lineViewport = openSeadragon.viewport.imageToViewportCoordinates(0,linePx);
 
@@ -655,6 +685,10 @@ function togglePedalLock(event) {
 const keyboardToggleKey = function(noteNumber, onIfTrue) {
 
     let keyElt = document.querySelector('div[data-key="' + (parseInt(noteNumber)-20).toString() + '"]');
+    if (keyElt === null) {
+      console.log("TRIED TO PLAY NONEXISTENT KEY:",noteNumber);
+      return;
+    }
     if (onIfTrue) {
       keyElt.classList.add("piano-keyboard-key-active");
     } else {
@@ -710,7 +744,7 @@ const updateTempoSlider = function(event) {
 
     playbackTempo = event.target.value * tempoRatio;
 
-    if (scorePlaying) {
+    if (scorePlayer && scorePlaying) {
       scorePlayer.pause();
       scorePlayer.setTempo(playbackTempo);
 	  scorePlayer.play();
@@ -778,6 +812,11 @@ const changeInstrument = function(e) {
 }
 
 const scorePlayback = function(e) {
+
+  if (scorePlayer === null) {
+    return;
+  }
+
 	if ((e.target.name === "playScore") && (!scorePlaying) && (!samplePlayer.isPlaying()) && (playState !== "paused")) {
 
 		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
@@ -830,7 +869,7 @@ const scorePlayback = function(e) {
 }
 
 const changeScorePage = function(e) {
-    if (scorePlaying) {
+    if (!scorePlayer || scorePlaying) {
 		return;
 	}
 	if ((e.target.name == "prevPage") && (currentScorePage > 1)) {
