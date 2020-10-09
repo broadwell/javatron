@@ -123,6 +123,20 @@ overflow-x: visible;
 overflow-y: visible;
 }
 
+#volumes {
+	margin-left: auto;
+	margin-right: auto;
+}
+
+#volumes input {
+	display: block;
+}
+
+.volInput {
+	display: flex;
+	justify-content: space-between;
+}
+
 .piano-keyboard {
 	height: 5rem;
 	width: 1024px;

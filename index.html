@@ -12,6 +12,10 @@
         <strong>Label: </strong><span id="label"></span> <br />
         <strong>PURL: </strong><span id="purl"></span> <br />
         <!-- <strong>Call No: </strong><span id="callno"></span> <br /> -->
+        <hr />
+        <div>Progress:
+          <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
+        </div>
       </div>
       <div>
         <div>
@@ -24,25 +28,26 @@
             name="recordings">
           </select>
         </div>
-        <div>
-          <label htmlFor="sampleInstrument">
-            Instrument:
-          </label>
-          <select
-            type="string"
-            name="sampleInstrument"
-            id="sampleInstrument"
-          >
-            <option value="acoustic_grand_piano">Acoustic Grand</option>
-            <option value="bright_acoustic_piano">Bright Acoustic</option>
-            <option value="electric_piano_1">Electric 1</option>
-            <option value="electric_piano_2">Electric 2</option>
-          </select>
-        </div>
-        <div>Progress:
-          <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
-        </div>
         <hr />
+        <div id="volumes">
+          <strong>Sample volumes</strong>
+          <div class="volInput">
+            <label for="strings">Piano strings</label>
+            <input class="samplevol" name="strings" type="range" min="-60" max="10" value="0">
+          </div>
+          <div class="volInput">
+            <label for="harmonics">Harmonics</label>
+            <input class="samplevol" name="harmonics" type="range" min="-60" max="10" value="0">
+          </div>
+          <div class="volInput">
+            <label for="pedal">Pedals</label>
+            <input class="samplevol" name="pedal" type="range" min="-60" max="10" value="0">
+          </div>
+          <div class="volInput">
+            <label for="keybed">Keybed</label>
+            <input class="samplevol" name="keybed" type="range" min="-60" max="10" value="0">
+          </div>
+        </div>
       </div>
     </div>
     <div class="flex-row-left main-row">
@@ -50,8 +55,8 @@
       <div class="score" width="500px" height="600px">
         <div class="flex-row-left indented-row">
           <span>Score playback:</span>
-          <button id="playScorePage" name="playScore">Start</button>
-          <button id="stopScorePage" name="stopScore" onclick="">Stop</button>
+          <button id="playScorePage" name="playScore" disabled>Start</button>
+          <button id="stopScorePage" name="stopScore">Stop</button>
         </div>
         <div class="flex-row-left indented-row">
           <span>Score pages:</span>
@@ -68,7 +73,7 @@
     </div>
     <div class="flex-container main-row" display="flex">
       <div>
-        <button id="playPause" background="white">Play/Pause</button>
+        <button id="playPause" background="white" disabled>Play/Pause</button>
         <button id="stop" background="white">Stop</button>
       </div>
       <div>Tempo:
