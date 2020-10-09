@@ -1,12 +1,11 @@
 import MidiPlayer from "midi-player-js"; // Decodes and plays back MIDI data
-import Soundfont from "soundfont-player"; // Generates sounds for MIDI events
 import OpenSeadragon from 'openseadragon';
 import IntervalTree from 'node-interval-tree';
 import verovio from 'verovio';
 import { v4 as uuidv4 } from 'uuid';
 import Keyboard from 'piano-keyboard';
+import { Piano } from '@tonejs/piano';
 
-const ADSR_SAMPLE_DEFAULTS = { "attack": 0.01, "decay": 0.1, "sustain": 0.9, "release": 0.3 };
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
 const FLAT_NOTES = ["A", "Bb", "B", "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab"];
@@ -22,20 +21,15 @@ const recordings_data = { 'zb497jz4405': { 'slug': 'mozart_rondo_alla_turca', 't
                           'pz594dj8436': { 'slug': 'alonso_las_corsarias', 'title': 'F. Alonso: Las corsarias: Selecciones', 'image_url': 'https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json' }
 						            }
 
-let AudioContext = window.AudioContext || window.webkitAudioContext || false; 
-let ac = null; // Audio Context
 let currentRecording = null;
 let rollMetadata = {};
 let samplePlayer = null; // the MIDI player
 let scorePlayer = null;
 let playState = "stopped";
-let instrument = null;
-let adsr = ADSR_SAMPLE_DEFAULTS;
 let totalTicks = 0;
 let currentTick = 0;
 let currentProgress = 0.0;
 let sampleInst = 'acoustic_grand_piano';
-let activeAudioNodes = {};
 let volumeRatio = 1.0;
 let leftVolumeRatio = 1.0;
 let rightVolumeRatio = 1.0;
@@ -62,14 +56,23 @@ let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentRecordingId = Object.keys(recordings_data)[2];
+let currentRecordingId = Object.keys(recordings_data)[0];
 let vrvToolkit = null;
-let RecordingOptions = []; // Elements for menu of Recordings to play
 
 let scrollUp = false;
 
 let keyboard = null;
 
+const startNote = function(noteNumber, velocity) {
+  if (!velocity) {
+    velocity = DEFAULT_NOTE_VELOCITY / 128.0;
+  }
+  piano.keyDown({"midi": noteNumber, "velocity": velocity});
+}
+
+const stopNote = function(noteNumber) {
+  piano.keyUp({"midi": noteNumber});
+}
 
 const loadRecording = function(e, currentRecordingId) {
 
@@ -85,7 +88,6 @@ const loadRecording = function(e, currentRecordingId) {
 		scrollTimer = null;
   }
   activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-  activeAudioNodes = {};
   activeNotes = [];
   sustainedNotes = [];
   highlightedNotes = [];
@@ -169,7 +171,7 @@ const loadRecording = function(e, currentRecordingId) {
 
     scorePlayer.on('endOfFile', function() {
       console.log("END OF FILE");
-      playScore(false);
+      scorePlaying = false;
       // Do something when end of the file has been reached.
     });
 
@@ -251,17 +253,6 @@ const initPlayer = function() {
           } else if (event.name === "Text Event") {
             let text = decodeCharRefs(event.string);
             if (!text) return;
-            /* @IMAGE_WIDTH and @IMAGE_LENGTH should be the same as from viewport._contentSize
-            * Can't think of why they wouldn't be, but maybe check anyway. Would need to scale
-            * all pixel values if so.
-            * Other potentially useful values, e.g., for drawing overlays:
-            * @ROLL_WIDTH (this is smaller than the image width)
-            * @HARD_MARGIN_TREBLE
-            * @HARD_MARGIN_BASS
-            * @HOLE_SEPARATION
-            * @HOLE_OFFSET
-            * All of the source/performance/recording metadata is in this track as well.
-            */
             const found = text.match(metadataRegex);
             rollMetadata[found.groups.key] = found.groups.value;
           }
@@ -292,23 +283,6 @@ const initPlayer = function() {
 	  
 	  let rollWidth = parseInt(rollMetadata['ROLL_WIDTH']);
 
-      /*
-      // Play line can be drawn via CSS (though not as accurately), but very
-      // similar code to this would be used to show other overlays, e.g., to
-      // "fill" in actively playing notes and other mechanics. Performance is
-      // an issue, though.
-      let startBounds = openSeadragon.viewport.getBounds();
-      let playPoint = new OpenSeadragon.Point(0, startBounds.y + (startBounds.height / 2.0));
-      let playLine = openSeadragon.viewport.viewer.getOverlayById('play-line');
-      if (!playLine) {
-        playLine = document.createElement("div");
-        playLine.id = "play-line";
-        openSeadragon.viewport.viewer.addOverlay(playLine, playPoint, OpenSeadragon.Placement.TOP_LEFT);
-      } else {
-        playLine.update(playPoint, OpenSeadragon.Placement.TOP_LEFT);
-      }
-      */
-
     });
     
     MidiSamplePlayer.on('playing', currentTick => {
@@ -327,7 +301,6 @@ const initPlayer = function() {
 
 	samplePlayer = MidiSamplePlayer;
 
-    /* Load MIDI data */
 	samplePlayer.loadDataUri(currentRecording);
 
 	totalTicks = samplePlayer.totalTicks;
@@ -338,128 +311,103 @@ const midiEvent = function(event) {
 
 	//console.log("MIDI EVENT",event);
 
-    // Do something when a MIDI event is fired.
-    // (this is the same as passing a function to MidiPlayer.Player() when instantiating).
-    if (event.name === 'Note on') {
+  // Do something when a MIDI event is fired.
+  // (this is the same as passing a function to MidiPlayer.Player() when instantiating).
+  if (event.name === 'Note on') {
 
-      const noteNumber = event.noteNumber;
-      //const noteName = getNoteName(noteNumber);
-      let noteVelocity = event.velocity;
+    const noteNumber = event.noteNumber;
+    //const noteName = getNoteName(noteNumber);
+    let noteVelocity = event.velocity;
 
-      // Note off
-      if (noteVelocity === 0) {
-        //console.log("OFF",noteNumber,getNoteName(noteNumber));
-        /*if (sustainedNotes.includes(noteNumber)) {
-          console.log("SUSTAIN PEDAL IS ON, KEEPING NOTE PLAYING");
-        }*/
+    // Note off
+    if (noteVelocity === 0) {
 
-        if (!sustainedNotes.includes(noteNumber)) {
-          try {
-            activeAudioNodes[noteNumber].stop(ac.currentTime);
-          } catch(error) {
-			console.log("COULDN'T STOP",noteNumber,getNoteName(noteNumber));
-			console.log(error);
-          }
-          delete activeAudioNodes[noteNumber];
-        }
+      //if (!sustainedNotes.includes(noteNumber)) {
+
         while(activeNotes.includes(parseInt(noteNumber))) {
           activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
         }
+        stopNote(noteNumber);
+        console.log("OFF",getNoteName(noteNumber));
 
         keyboardToggleKey(noteNumber, false);
-      
-      // Note on
-      } else {
-        //console.log("ON",noteNumber,getNoteName(noteNumber))
-        if (sustainedNotes.includes(noteNumber)) {
-          //console.log("NOTE STILL SUSTAINED WHEN RE-TOUCHED, STOPPING");
-          try {
-            activeAudioNodes[noteNumber].stop();
-          } catch {
-            console.log("Tried and failed to stop sustained note being re-touched",noteNumber);
-          }
-          delete activeAudioNodes[noteNumber];
-        }
+      //}
+    // Note on
+    } else {
+      /*if (sustainedNotes.includes(noteNumber)) {
+        console.log("STOPPING NOTE SO IT CAN BE PLAYED AGAIN",getNoteName(noteNumber));
+        stopNote(noteNumber);
+      }*/
 
-        let updatedVolume = noteVelocity/100.0 * volumeRatio;
-        if (softPedalOn) {
-          updatedVolume *= SOFT_PEDAL_RATIO;
-        }
-        if (parseInt(noteNumber) < panBoundary) {
-          updatedVolume *= leftVolumeRatio;
-        } else if (parseInt(noteNumber) >= panBoundary) {
-          updatedVolume *= rightVolumeRatio;
-        }
-
-        try {
-          adsr = [adsr['attack'], adsr['decay'], adsr['sustain'], adsr['release']];
-          
-          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume /*, adsr */ });
-          activeAudioNodes[noteNumber] = noteNode;
-        } catch(error) {
-          // Get rid of this eventually
-          console.log("NOTE PLAY ERROR",error);
-          adsr = [ADSR_SAMPLE_DEFAULTS['attack'], ADSR_SAMPLE_DEFAULTS['decay'], ADSR_SAMPLE_DEFAULTS['sustain'], ADSR_SAMPLE_DEFAULTS['release']];
-          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume, adsr });
-          activeAudioNodes[noteNumber] = noteNode;
-        }
-        if (sustainPedalOn && !sustainedNotes.includes(noteNumber)) {
-          sustainedNotes.push(noteNumber);
-        }
-
-        if (!activeNotes.includes(noteNumber)) {
-          activeNotes.push(parseInt(noteNumber));
-        }
-
-        keyboard.activeNotes.add(noteNumber);
-
-        keyboardToggleKey(noteNumber, true);
+      let updatedVolume = noteVelocity/128.0 * volumeRatio;
+      if (softPedalOn) {
+        updatedVolume *= SOFT_PEDAL_RATIO;
       }
-    } else if (event.name === "Controller Change") {
-      // Controller Change number=64 is a sustain pedal event;
-      // 127 is down (on), 0 is up (off)
-      if ((event.number == 64) && !sustainPedalLocked) {
-        if (event.value == 127) {
-          pressSustainPedal();
-        } else if (event.value == 0) {
-          releaseSustainPedal();
-        }
-      // 67 is the soft (una corda) pedal
-      } else if (event.number == 67 && !softPedalLocked) {
-        if (event.value == 127) {
-		  softPedalOn = true;
-		  document.getElementById("softPedal").classList.add("pressed");
-        } else if (event.value == 0) {
-		  softPedalOn = false;
-		  document.getElementById("softPedal").classList.remove("pressed");
-        }
-      } else if (event.number == 10) {
-        // Controller Change number=10 sets the "panning position",
-        // which is supposed to divide the keyboard into portions,
-        // presumably bass and treble. These values are a bit odd
-        // however and it's not clear how to use them, e.g.,
-        // track 2: value = 52, track 3: value = 76
-        panBoundary = event.value;
+      if (parseInt(noteNumber) < panBoundary) {
+        updatedVolume *= leftVolumeRatio;
+      } else if (parseInt(noteNumber) >= panBoundary) {
+        updatedVolume *= rightVolumeRatio;
       }
-    } else if (event.name === "Set Tempo") {
+      console.log("ON", getNoteName(noteNumber), noteVelocity);
+      startNote(noteNumber, updatedVolume);
 
-      tempoRatio = 1 + (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
-	  playbackTempo = parseFloat(sliderTempo) * tempoRatio;
-	  
-	  console.log("SETTING PLAYBACK TEMPO TO", playbackTempo)
-
-      samplePlayer.setTempo(playbackTempo);
-      if (scorePlayer) {
-        scorePlayer.setTempo(playbackTempo);
+      if (sustainPedalOn && !sustainedNotes.includes(noteNumber)) {
+        sustainedNotes.push(noteNumber);
       }
+
+      if (!activeNotes.includes(noteNumber)) {
+        activeNotes.push(parseInt(noteNumber));
+      }
+
+      keyboardToggleKey(noteNumber, true);
     }
+  } else if (event.name === "Controller Change") {
+    // Controller Change number=64 is a sustain pedal event;
+    // 127 is down (on), 0 is up (off)
+    if ((event.number == 64) && !sustainPedalLocked) {
+      if (event.value == 127) {
+        pressSustainPedal();
+      } else if (event.value == 0) {
+        releaseSustainPedal();
+      }
+    // 67 is the soft (una corda) pedal
+    } else if (event.number == 67 && !softPedalLocked) {
+      if (event.value == 127) {
+        console.log("SOFT ON");
+        softPedalOn = true;
+        document.getElementById("softPedal").classList.add("pressed");
+      } else if (event.value == 0) {
+        console.log("SOFT OFF");
+        softPedalOn = false;
+        document.getElementById("softPedal").classList.remove("pressed");
+      }
+    } else if (event.number == 10) {
+      // Controller Change number=10 sets the "panning position",
+      // which is supposed to divide the keyboard into portions,
+      // presumably bass and treble. These values are a bit odd
+      // however and it's not clear how to use them, e.g.,
+      // track 2: value = 52, track 3: value = 76
+      panBoundary = event.value;
+    }
+  } else if (event.name === "Set Tempo") {
+
+    tempoRatio = 1 + (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
+    playbackTempo = parseFloat(sliderTempo) * tempoRatio;
+  
+    console.log("SETTING PLAYBACK TEMPO TO", playbackTempo)
+
+    samplePlayer.setTempo(playbackTempo);
+    if (scorePlayer) {
+      scorePlayer.setTempo(playbackTempo);
+    }
+  }
 
     // The scrollTimer should ensure that the roll is synchronized with
     // playback; syncing at every note effect also can cause problems
     // on certain browsers if the playback events start to lag behind
     // their scheduled times.
     //panViewportToTick(event.tick);
-
+  
 }
 
 const playPausePlayback = function() {
@@ -468,27 +416,17 @@ const playPausePlayback = function() {
       return;
     }
 
-    if (samplePlayer.isPlaying()) {
+    if (samplePlayer.isPlaying()) { // Pause
       samplePlayer.pause();
-	  clearInterval(scrollTimer);
-	  playState = "paused";
-	  scrollTimer = null;
-    } else {
+	    clearInterval(scrollTimer);
+	    playState = "paused";
+	    scrollTimer = null;
+    } else { // Play
       openSeadragon.viewport.zoomTo(HOME_ZOOM);
 	    activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	    playState = "playing";
-	    // XXX Consider setting a timer to recycle AudioContext and sample player
-	    // periodically to avoid Firefox fuzzout issue. This likely would case a
-	    // noticeable skip during playback when it happens, though. 
-	    if (ac) {
-		    ac.close();
-	    }
-	    ac = new AudioContext();
-	    Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-		    instrument = inst;
-		    scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
-		    samplePlayer.play();
-	    });
+      playState = "playing";
+      scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
+      samplePlayer.play();
     }
 }
 
@@ -496,21 +434,15 @@ const stopPlayback = function() {
     if (samplePlayer.isPlaying() || (playState === "paused")) {
 
       samplePlayer.stop();
-	  clearInterval(scrollTimer);
+	    clearInterval(scrollTimer);
 	  
-	  ac.close().then(function () {
 			activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
 			playState = "stopped";
 			scrollTimer = null;
-			activeAudioNodes = {};
 			activeNotes = [];
       releaseSustainPedal();
       softPedalOn = false;
       document.getElementById("softPedal").classList.remove("pressed");
-  
-		  ac = null;
-		  instrument = null;
-	  });
 
     }
 }
@@ -522,7 +454,7 @@ const updateProgress = function() {
 	}
 
 	document.getElementById('progressSlider').value = currentProgress;
-	document.getElementById('progressPct').innerText = (currentProgress * 100.).toFixed(2)+"%"
+	document.getElementById('progressPct').innerText = (currentProgress * 100.0).toFixed(2)+"%"
 }
 
 const skipTo = function(targetTick, targetProgress) {
@@ -537,7 +469,6 @@ const skipTo = function(targetTick, targetProgress) {
       scorePlayer.pause();
       scorePlayer.skipToTick(playTick);
       activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-      activeAudioNodes = {};
       activeNotes = [];
       sustainedNotes = [];
       currentProgress = playProgress;
@@ -555,14 +486,12 @@ const skipTo = function(targetTick, targetProgress) {
       samplePlayer.pause();
       samplePlayer.skipToTick(playTick);
       activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-      activeAudioNodes = {};
       activeNotes = [];
       sustainedNotes = [];
       currentProgress = playProgress;
       samplePlayer.play();
     } else {
       samplePlayer.skipToTick(playTick);
-      //panViewportToTick(targetTick);
 	}
 	updateProgress();
 }
@@ -636,28 +565,23 @@ const pressSustainPedal = function() {
         sustainedNotes.push(noteNumber)
       }
 	});
-	//console.log("SUSTAIN ON");
+  console.log("SUSTAIN ON");
+  piano.pedalDown();
 	sustainPedalOn = true;
 	document.getElementById("sustainPedal").classList.add("pressed");
 }
 
 const releaseSustainPedal = function() {
-    sustainedNotes.forEach((noteNumber) => {
+    /*sustainedNotes.forEach((noteNumber) => {
       if (!(activeNotes.includes(parseInt(noteNumber)))) {
-        // XXX Maybe use a slower release velocity for pedal events?
-        //console.log("NOTE OFF AT SUSTAIN PEDAL RELEASE",noteNumber,getNoteName(noteNumber));
-        try {
-          activeAudioNodes[noteNumber].stop();
-        } catch {
-          console.log("FAILED TO UNSUSTAIN",noteNumber);
-        }
-        delete activeAudioNodes[noteNumber];
+        stopNote(noteNumber);
       }
-	});
-	sustainPedalOn = false;
-	//console.log("SUSTAIN OFF");
-	sustainedNotes = [];
-	document.getElementById("sustainPedal").classList.remove("pressed");
+    });*/
+    piano.pedalUp();
+	  sustainPedalOn = false;
+	  console.log("SUSTAIN OFF");
+	  sustainedNotes = [];
+	  document.getElementById("sustainPedal").classList.remove("pressed");
 }
 
 function togglePedalLock(event) {
@@ -675,8 +599,10 @@ function togglePedalLock(event) {
         softPedalLocked = !softPedalLocked;
         softPedalOn = softPedalLocked;
       if (softPedalOn) {
+        console.log("SOFT ON");
         document.getElementById("softPedal").classList.add("pressed");
       } else {
+        console.log("SOFT OFF");
         document.getElementById("softPedal").classList.remove("pressed");
       }
     }
@@ -689,27 +615,19 @@ const keyboardToggleKey = function(noteNumber, onIfTrue) {
       console.log("TRIED TO PLAY NONEXISTENT KEY:",noteNumber);
       return;
     }
-    if (onIfTrue) {
+    if (onIfTrue && !keyElt.classList.contains('piano-keyboard-key-active')) {
       keyElt.classList.add("piano-keyboard-key-active");
-    } else {
+    } else if (!onIfTrue && keyboard_elt.classList.contains('piano-keyboard-active')) {
       keyElt.classList.remove("piano-keyboard-key-active");
     }
 }
 
 // This is for playing notes manually pressed (clicked) on the keyboard
-const midiNotePlayer = function(noteNumber, onIfTrue /*, prevActiveNotes*/) {
-
-	if (!ac || !instrument) {
-	  ac = new AudioContext();
-	  Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-		instrument = inst;
-		midiNotePlayer(noteNumber, onIfTrue);
-	  });
-	  return;
-	}
+const midiNotePlayer = function(noteNumber, onIfTrue) {
+  console.log("MANUAL PLAY:",noteNumber, onIfTrue);
 
     if (onIfTrue) {
-      let updatedVolume = DEFAULT_NOTE_VELOCITY/100.0 * volumeRatio;
+      let updatedVolume = DEFAULT_NOTE_VELOCITY/128.0 * volumeRatio;
       if (softPedalOn) {
         updatedVolume *= SOFT_PEDAL_RATIO;
       }
@@ -718,25 +636,17 @@ const midiNotePlayer = function(noteNumber, onIfTrue /*, prevActiveNotes*/) {
       } else if (parseInt(noteNumber) >= HALF_BOUNDARY) {
         updatedVolume *= rightVolumeRatio;
       }
-      if (noteNumber in activeAudioNodes) {
-        try {
-          activeAudioNodes[noteNumber].stop();
-        } catch {
-          console.log("Keyboard tried and failed to stop playing note to replace it",noteNumber);
-        }
-      }
+
       if (sustainPedalOn && !sustainedNotes.includes(noteNumber)) {
-		sustainedNotes.push(noteNumber);
+		    sustainedNotes.push(noteNumber);
       }
-	  const audioNode = instrument.play(noteNumber, ac.currentTime, {gain: updatedVolume});
-	  activeAudioNodes[noteNumber] = audioNode;
+
+      piano.keyDown({"midi": noteNumber, "velocity": updatedVolume });
     } else {
-        if (!activeAudioNodes[noteNumber] || (sustainPedalOn && sustainedNotes.includes(noteNumber))) {
+        if (sustainPedalOn && sustainedNotes.includes(noteNumber)) {
           return;
         }
-        const audioNode = activeAudioNodes[noteNumber];
-		audioNode.stop();
-		delete activeAudioNodes[noteNumber];
+        piano.keyUp({"midi": noteNumber});
     }
 }
 
@@ -786,29 +696,7 @@ const updateVolumeSlider = function(event) {
 const changeInstrument = function(e) {
     const newInstName = e.target.value;
 
-    // XXX This mostly works, except that when switching back to the
-    // acoustic_grand_piano, the bright_acoustic_piano plays instead.
-    // Possibly this problem is rooted in how the soundfonts are
-    // defined, i.e., if the bright_acoustic is just a modification of
-    // the samples in acoustic_grand, the system may erroneously
-	// assume they're the same...
-	if (ac) {
-		ac.close().then(() => {
-			ac = new AudioContext();
-			Soundfont.instrument(ac, newInstName, { soundfont: 'FluidR3_GM' }).then(
-				(inst) => {
-					instrument = inst;
-					sampleInst = newInstName;
-				});
-		});
-	} else {
-		ac = new AudioContext();
-		Soundfont.instrument(ac, newInstName, { soundfont: 'FluidR3_GM' }).then(
-			(inst) => {
-				instrument = inst;
-				sampleInst = newInstName;
-			});
-	}
+  return;
 }
 
 const scorePlayback = function(e) {
@@ -826,15 +714,7 @@ const scorePlayback = function(e) {
 		activeNotes = [];
 		totalTicks = scorePlayer.totalTicks;
 
-		if (!instrument) {
-			ac = new AudioContext();
-			Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-				instrument = inst;
-				scorePlayer.play();
-			});
-		} else {
-			scorePlayer.play();
-		}
+    scorePlayer.play();
 		
 	} else if ((e.target.name === "stopScore") && (scorePlaying)) {
 		scorePlaying = false;
@@ -848,10 +728,7 @@ const scorePlayback = function(e) {
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
-
-    for (const nodeId in activeAudioNodes) {
-      activeAudioNodes[nodeId].stop();
-    }
+    piano.pedalUp();
 
 		if (highlightedNotes && highlightedNotes.length > 0) {
 			highlightedNotes.forEach((noteId) => {
@@ -921,12 +798,30 @@ openSeadragon = new OpenSeadragon({
     defaultZoomLevel: HOME_ZOOM,
     minZoomLevel: .01,
     maxZoomLevel: 4
-  });
+});
 
 openSeadragon.addHandler("canvas-drag", () => {
 	let center = openSeadragon.viewport.getCenter();
 	let centerCoords = openSeadragon.viewport.viewportToImageCoordinates(center);
 	skipToPixel(centerCoords.y);
+});
+
+// create the piano and load 5 velocity steps
+const piano = new Piano({
+  // XXX These load from the guy's Github site
+  // unless there's a valid URL, and using a
+  // local folder seems problematic...
+  //url: 'http://localhost/~pmb/demotron/audio/', // works if avaialable
+  //url: '/audio/', // hasn't worked so far
+  velocities: 16,
+  release: true,
+  pedal: true,
+  maxPolyphony: 64
+}).toDestination();
+
+const loadPiano = piano.load();
+Promise.all([loadPiano]).then(() => {
+  console.log("Piano loaded")
 });
 
 let keyboard_elt = document.querySelector('.keyboard');
@@ -962,7 +857,6 @@ tempoSlider.onchange = updateTempoSlider;
 document.getElementById("masterVolumeSlider").value = volumeRatio;
 document.getElementById("leftVolumeSlider").value = leftVolumeRatio;
 document.getElementById("rightVolumeSlider").value = leftVolumeRatio;
-
 
 verovio.module.onRuntimeInitialized = function() {
 
