@@ -67,6 +67,12 @@ const recordings_data = {
     image_url:
       "https://stacks.stanford.edu/image/iiif/dj406yq6980%2Fdj406yq6980_0001/info.json",
   },
+  rx870zt5437: {
+    slug: "peterossi_tango_argentino",
+    title: "Peterossi: Galleguita: tango argentino",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/rx870zt5437%2Frx870zt5437_0002/info.json",
+  }
 };
 
 let currentRecording = null;
