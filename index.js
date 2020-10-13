@@ -982,7 +982,7 @@ document.getElementById("masterVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("leftVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("rightVolumeSlider").onchange = updateVolumeSlider;
 
-document.getElementById("tempo").value = sliderTempo + " bpm";
+document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 
 document
   .getElementById("playPause")
