@@ -11,8 +11,12 @@
         <strong>Composer: </strong><span id="composer"></span> <br />
         <strong>Label: </strong><span id="label"></span> <br />
         <strong>PURL: </strong><span id="purl"></span> <br />
-        <strong>Call No: </strong><span id="callno"></span> <br />
+        <!-- <strong>Call No: </strong><span id="callno"></span> <br /> -->
         <hr />
+        <div>
+          <input type="checkbox" id="playExpressions" name="playExpressionsCheckbox" checked>
+          <label for="playExpressions">Play computed expressions</label>
+        </div>
         <div>Progress:
           <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
         </div>

@@ -55,12 +55,12 @@ const recordings_data = {
     image_url:
       "https://stacks.stanford.edu/image/iiif/yj598pj2879%2Fyj598pj2879_0001/info.json",
   },
-  pz594dj8436: {
-    slug: "alonso_las_corsarias",
-    title: "F. Alonso: Las corsarias: Selecciones",
-    image_url:
-      "https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json",
-  },
+  // pz594dj8436: {
+  //   slug: "alonso_las_corsarias",
+  //   title: "F. Alonso: Las corsarias: Selecciones",
+  //   image_url:
+  //     "https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json",
+  // },
   dj406yq6980: {
     slug: "brassin_magic_fire",
     title: "Brassin-Wagner/Hofmann - Feuerzauber",
@@ -97,6 +97,7 @@ let sustainPedalLocked = false;
 let softPedalLocked = false;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
+let playComputedExpressions = true;
 
 let openSeadragon = null;
 let firstHolePx = 0;
@@ -116,13 +117,15 @@ let scrollUp = false;
 let keyboard = null;
 
 const startNote = function (noteNumber, velocity) {
-  if (!velocity) {
+  if (velocity === null) {
     velocity = DEFAULT_NOTE_VELOCITY / 128.0;
   }
 
   velocity = Math.min(velocity, 1.0);
 
-  piano.keyDown({ midi: noteNumber, velocity: velocity });
+  if (velocity > 0) {
+    piano.keyDown({ midi: noteNumber, velocity: velocity });
+  }
   keyboardToggleKey(noteNumber, true);
 };
 
@@ -319,16 +322,22 @@ const initPlayer = function () {
     console.log(rollMetadata);
 
     document.getElementById("title").innerText = rollMetadata["TITLE"];
-    document.getElementById("performer").innerText = rollMetadata["PERFORMER"];
+    let performer = rollMetadata["PERFORMER"];
+    if (rollMetadata["PERFORMER"] === undefined) {
+      performer = "N/A";
+    }
+    document.getElementById("performer").innerText = performer;
     document.getElementById("composer").innerText = rollMetadata["COMPOSER"];
     document.getElementById("label").innerText = rollMetadata["LABEL"];
     document.getElementById("purl").innerHTML =
       '<a href="' + rollMetadata["PURL"] + '">' + rollMetadata["PURL"] + "</a>";
-    document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+    // document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
 
     scrollUp = false;
+    document.getElementById("playExpressions").disabled = false;
     if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
       scrollUp = true;
+      document.getElementById("playExpressions").disabled = true;
     }
 
     firstHolePx = parseInt(rollMetadata["FIRST_HOLE"]);
@@ -370,11 +379,9 @@ const midiEvent = function (event) {
   // (this is the same as passing a function to MidiPlayer.Player() when instantiating).
   if (event.name === "Note on") {
     const noteNumber = event.noteNumber;
-    //const noteName = getNoteName(noteNumber);
-    let noteVelocity = event.velocity;
 
     // Note off
-    if (noteVelocity === 0) {
+    if (event.velocity === 0) {
       while (activeNotes.includes(parseInt(noteNumber))) {
         activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
       }
@@ -383,6 +390,8 @@ const midiEvent = function (event) {
       //}
       // Note on
     } else {
+      let noteVelocity = playComputedExpressions ? event.velocity : DEFAULT_NOTE_VELOCITY;
+
       let updatedVolume = (noteVelocity / 128.0) * volumeRatio;
       if (softPedalOn) {
         updatedVolume *= SOFT_PEDAL_RATIO;
@@ -728,10 +737,8 @@ const updateVolumeSlider = function (event) {
   }
 };
 
-const changeInstrument = function (e) {
-  const newInstName = e.target.value;
-
-  return;
+const toggleExpressions = function (event) {
+  playComputedExpressions = event.target.checked;
 };
 
 const scorePlayback = function (e) {
@@ -853,7 +860,7 @@ openSeadragon.addHandler("canvas-drag", () => {
 
 let globalPiano = null;
 
-// create the piano and load 5 velocity steps
+// create the piano and load velocity steps
 let piano = new Piano({
   // XXX The samples load from the guy's Github site
   // unless there's a valid URL, and using a
@@ -1006,3 +1013,7 @@ document
 document
   .getElementById("stopScorePage")
   .addEventListener("click", scorePlayback, false);
+
+document
+  .getElementById("playExpressions")
+  .addEventListener("click", toggleExpressions, false);
