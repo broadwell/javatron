@@ -860,7 +860,7 @@ let piano = new Piano({
   // local folder seems problematic...
   url: 'http://localhost/~pmb/demotron/audio/', // works if avaialable
   //url: '/audio/', // note sure we want to try to bundle these...
-  velocities: 1,
+  velocities: 8,
   release: true,
   pedal: true,
   maxPolyphony: 64,
@@ -915,7 +915,7 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
     // XXX The samples load from the guy's Github site
     // unless there's a valid URL, and using a
     // local folder seems problematic...
-    url: 'http://localhost/~pmb/demotron/audio/', // works if avaialable
+    url: 'https://broadwell.github.io/javatron/audio/', // works if avaialable
     //url: '/audio/', // note sure we want to try to bundle these...
     velocities: parseInt(e.target.value),
     release: true,
