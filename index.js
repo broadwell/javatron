@@ -858,7 +858,7 @@ let piano = new Piano({
   // XXX The samples load from the guy's Github site
   // unless there's a valid URL, and using a
   // local folder seems problematic...
-  url: 'http://localhost/~pmb/demotron/mp3/audio/', // works if avaialable
+  url: 'https://broadwell.github.io/javatron/audio/mp3/', // works if avaialable
   //url: '/audio/', // note sure we want to try to bundle these...
   velocities: 8,
   release: true,
