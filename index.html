@@ -11,7 +11,7 @@
         <strong>Composer: </strong><span id="composer"></span> <br />
         <strong>Label: </strong><span id="label"></span> <br />
         <strong>PURL: </strong><span id="purl"></span> <br />
-        <!-- <strong>Call No: </strong><span id="callno"></span> <br /> -->
+        <strong>Call No: </strong><span id="callno"></span> <br />
         <hr />
         <div>Progress:
           <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
@@ -33,19 +33,28 @@
           <strong>Sample volumes</strong>
           <div class="volInput">
             <label for="strings">Piano strings</label>
-            <input class="samplevol" name="strings" type="range" min="-60" max="10" value="0">
+            <output for="strings" id="strings"></output>
+            <input class="samplevol" name="strings" type="range" min="-60" max="10" value="-15" />
           </div>
           <div class="volInput">
             <label for="harmonics">Harmonics</label>
-            <input class="samplevol" name="harmonics" type="range" min="-60" max="10" value="0">
+            <output for="harmonics" id="harmonics"></output>
+            <input class="samplevol" name="harmonics" type="range" min="-60" max="10" value="-15" />
           </div>
           <div class="volInput">
             <label for="pedal">Pedals</label>
-            <input class="samplevol" name="pedal" type="range" min="-60" max="10" value="0">
+            <output for="pedal" id="pedal"></output>
+            <input class="samplevol" name="pedal" type="range" min="-60" max="10" value="-10" />
           </div>
           <div class="volInput">
             <label for="keybed">Keybed</label>
-            <input class="samplevol" name="keybed" type="range" min="-60" max="10" value="0">
+            <output for="keybed" id="keybed"></output>
+            <input class="samplevol" name="keybed" type="range" min="-60" max="10" value="-10" />
+          </div>
+          <div class="volInput">
+            <label for="velocities"><strong>Velocities</strong></label>
+            <output for="velocities" id="velocities"></output>
+            <input name="velocities" id="velocitiesSlider" type="range" min="1" max="16" value="1" />
           </div>
         </div>
       </div>
@@ -78,16 +87,19 @@
       </div>
       <div>Tempo:
         <input type="range" min="0" max="180" step="1" class="slider" id="tempoSlider" />
-        <span id="tempo"></span>
+        <output for="tempoSlider" id="tempo"></output>
       </div>
       <div>Master Volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="volume" id="masterVolumeSlider" />
+        <output for="masterVolumeSlider" id="masterVolume"></output>
       </div>
       <div >Bass Volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
+        <output for="leftVolumeSlider" id="leftVolume"></output>
       </div>
       <div >Treble Volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
+        <output for="rightVolumeSlider" id="rightVolume"></output>
       </div>
     </div>
   </div>

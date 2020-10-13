@@ -138,6 +138,7 @@ const loadRecording = function (e, currentRecordingId) {
 
   if (samplePlayer && (samplePlayer.isPlaying() || playState === "paused")) {
     samplePlayer.stop();
+    playState = "stopped";
   }
   if (scrollTimer) {
     clearInterval(scrollTimer);
@@ -323,7 +324,7 @@ const initPlayer = function () {
     document.getElementById("label").innerText = rollMetadata["LABEL"];
     document.getElementById("purl").innerHTML =
       '<a href="' + rollMetadata["PURL"] + '">' + rollMetadata["PURL"] + "</a>";
-    //   document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+    document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
 
     scrollUp = false;
     if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
@@ -709,7 +710,7 @@ const updateTempoSlider = function (event) {
 
   sliderTempo = event.target.value;
 
-  document.getElementById("tempo").innerText = sliderTempo + " bpm";
+  document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 };
 
 const updateVolumeSlider = function (event) {
@@ -717,10 +718,13 @@ const updateVolumeSlider = function (event) {
 
   if (sliderName === "volume") {
     volumeRatio = event.target.value;
+    document.getElementById("masterVolume").value = volumeRatio;
   } else if (sliderName === "leftVolume") {
     leftVolumeRatio = event.target.value;
+    document.getElementById("leftVolume").value = leftVolumeRatio;
   } else if (sliderName === "rightVolume") {
     rightVolumeRatio = event.target.value;
+    document.getElementById("rightVolume").value = rightVolumeRatio;
   }
 };
 
@@ -847,24 +851,27 @@ openSeadragon.addHandler("canvas-drag", () => {
   skipToPixel(centerCoords.y);
 });
 
+let globalPiano = null;
+
 // create the piano and load 5 velocity steps
-const piano = new Piano({
+let piano = new Piano({
   // XXX The samples load from the guy's Github site
   // unless there's a valid URL, and using a
   // local folder seems problematic...
-  //url: 'http://localhost/~pmb/demotron/audio/', // works if avaialable
+  url: 'http://localhost/~pmb/demotron/audio/', // works if avaialable
   //url: '/audio/', // note sure we want to try to bundle these...
-  velocities: 16,
+  velocities: 1,
   release: true,
   pedal: true,
   maxPolyphony: 64,
 }).toDestination();
 
-const loadPiano = piano.load();
+let loadPiano = piano.load();
 Promise.all([loadPiano]).then(() => {
   console.log("Piano loaded");
   document.getElementById("playPause").disabled = false;
   document.getElementById("playScorePage").disabled = false;
+  globalPiano = piano;
 });
 
 let keyboard_elt = document.querySelector(".keyboard");
@@ -884,9 +891,57 @@ keyboard
   });
 
 document.querySelectorAll("input.samplevol").forEach((input) => {
+  piano[input.name].value = parseInt(input.value, 10);
+  document.getElementById(input.name).value = parseInt(input.value, 10);
   input.addEventListener("input", (e) => {
+    document.getElementById(e.target.name).value = parseInt(e.target.value, 10);
     piano[e.target.name].value = parseInt(e.target.value, 10);
   });
+});
+
+document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
+document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
+  document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
+  if (playState === "playing") {
+    playPausePlayback();
+  }
+  document.getElementById("playPause").disabled = true;
+  document.getElementById("playScorePage").disabled = true;
+  document.getElementById("stop").disabled = true;
+  document.getElementById("stopScorePage").disabled = true;
+  globalPiano.dispose();
+
+  piano = new Piano({
+    // XXX The samples load from the guy's Github site
+    // unless there's a valid URL, and using a
+    // local folder seems problematic...
+    url: 'http://localhost/~pmb/demotron/audio/', // works if avaialable
+    //url: '/audio/', // note sure we want to try to bundle these...
+    velocities: parseInt(e.target.value),
+    release: true,
+    pedal: true,
+    maxPolyphony: 64,
+  }).toDestination();
+
+  let loadPiano = piano.load();
+  Promise.all([loadPiano]).then(() => {
+    console.log("Piano reloaded");
+
+    document.querySelectorAll("input.samplevol").forEach((input) => {
+      piano[input.name].value = parseInt(input.value, 10);
+    });
+
+    document.getElementById("playPause").disabled = false;
+    document.getElementById("playScorePage").disabled = false;
+    document.getElementById("stop").disabled = false;
+    document.getElementById("stopScorePage").disabled = false;
+
+    globalPiano = piano;
+    if (playState === "paused") {
+      playPausePlayback();
+    }
+  });
+
 });
 
 let recordingsChooser = document.getElementById("recordings");
@@ -903,8 +958,11 @@ tempoSlider.value = sliderTempo;
 tempoSlider.onchange = updateTempoSlider;
 
 document.getElementById("masterVolumeSlider").value = volumeRatio;
+document.getElementById("masterVolume").value = volumeRatio;
 document.getElementById("leftVolumeSlider").value = leftVolumeRatio;
+document.getElementById("leftVolume").value = leftVolumeRatio;
 document.getElementById("rightVolumeSlider").value = rightVolumeRatio;
+document.getElementById("rightVolume").value = rightVolumeRatio;
 
 verovio.module.onRuntimeInitialized = function () {
   ///create the toolkit instance
@@ -917,7 +975,7 @@ document.getElementById("masterVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("leftVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("rightVolumeSlider").onchange = updateVolumeSlider;
 
-document.getElementById("tempo").innerText = sliderTempo + " bpm";
+document.getElementById("tempo").value = sliderTempo + " bpm";
 
 document
   .getElementById("playPause")
