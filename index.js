@@ -39,7 +39,9 @@ const SOFT_PEDAL_RATIO = 0.67;
 const DEFAULT_NOTE_VELOCITY = 33.0;
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
 const HOME_ZOOM = 1;
-let midiData = require("./mididata.json");
+const BASE_DATA_URL = "https://broadwell.github.io/javatron/";
+
+//let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
 
 const recordings_data = {
@@ -242,8 +244,14 @@ const loadRecording = function (e, newRecordingId) {
 
 /* SAMPLE-BASED PLAYBACK USING midi-player-js AND soundfont-player */
 
-const initPlayer = function () {
+const loadRecordingData = function(data) {
+  if (data !== undefined) {
+    currentRecording = data;
+    samplePlayer.loadArrayBuffer(currentRecording);
+  }
+}
 
+const initPlayer = function () {
 
   /* Instantiate the MIDI player */
   samplePlayer = new MidiPlayer.Player();
@@ -372,20 +380,25 @@ const initPlayer = function () {
     panViewportToTick(0);
   });
 
-  fetch('https://broadwell.github.io/javatron/midi/' + currentRecordingId + '_exp.mid')
-  .then(response => {
-    console.log(response.status);
-    if (response.status != 200) {
-      console.log("Trying raw MIDI");
-      fetch('https://broadwell.github.io/javatron/midi/' + currentRecordingId + '_note.mid')
-      .then(response => response.arrayBuffer())
-    } else {
+  // Load the raw MIDI if the expression MIDI is not available
+  // XXX There's probably a more elegant way to do this...
+  fetch(BASE_DATA_URL + 'midi/' + currentRecordingId + '_exp.mid')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Network error');
+      }
       return response.arrayBuffer();
-  }})
-  .then(data => {
-    currentRecording = data;
-    samplePlayer.loadArrayBuffer(currentRecording);
-  });
+    })
+    .catch(error => {
+      fetch(BASE_DATA_URL + 'midi/' + currentRecordingId + '_note.mid')
+        .then(response => response.arrayBuffer())
+        .then(data => {
+          loadRecordingData(data);
+        });
+    })
+    .then(data => {
+      loadRecordingData(data);
+    });
 };
 
 const midiEvent = function (event) {
@@ -881,7 +894,7 @@ let piano = new Piano({
   // XXX The samples load from the guy's Github site
   // unless there's a valid URL, and using a
   // local folder seems problematic...
-  url: 'https://broadwell.github.io/javatron/audio/mp3/', // works if avaialable
+  url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
   //url: '/audio/', // note sure we want to try to bundle these...
   velocities: 8,
   release: true,
@@ -938,7 +951,7 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
     // XXX The samples load from the guy's Github site
     // unless there's a valid URL, and using a
     // local folder seems problematic...
-    url: 'https://broadwell.github.io/javatron/audio/', // works if avaialable
+    url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
     //url: '/audio/', // note sure we want to try to bundle these...
     velocities: parseInt(e.target.value),
     release: true,
