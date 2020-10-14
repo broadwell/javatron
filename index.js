@@ -134,9 +134,11 @@ const stopNote = function (noteNumber) {
   keyboardToggleKey(noteNumber, false);
 };
 
-const loadRecording = function (e, currentRecordingId) {
+const loadRecording = function (e, newRecordingId) {
   if (e) {
     currentRecordingId = e.target.value;
+  } else {
+    currentRecordingId = newRecordingId;
   }
 
   if (samplePlayer && (samplePlayer.isPlaying() || playState === "paused")) {
@@ -156,18 +158,12 @@ const loadRecording = function (e, currentRecordingId) {
   softPedalOn = false;
   document.getElementById("softPedal").classList.remove("pressed");
 
-  openSeadragon.addOnceHandler("update-viewport", () => {
-    panViewportToTick(0);
-  });
-
-  console.log("loading Recording ID", currentRecordingId);
+  console.log("loading recording ID", currentRecordingId);
 
   document.getElementById("recordings").value = currentRecordingId;
 
   let recordingSlug = recordings_data[currentRecordingId]["slug"];
-  currentRecording = midiData[recordingSlug];
-
-  openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
+  //currentRecording = midiData[recordingSlug];
 
   initPlayer();
 
@@ -242,17 +238,18 @@ const loadRecording = function (e, currentRecordingId) {
     scorePlayer.loadDataUri(scoreMIDI);
   }
 
-  updateProgress();
 };
 
 /* SAMPLE-BASED PLAYBACK USING midi-player-js AND soundfont-player */
 
 const initPlayer = function () {
+
+
   /* Instantiate the MIDI player */
-  let MidiSamplePlayer = new MidiPlayer.Player();
+  samplePlayer = new MidiPlayer.Player();
 
   /* Various event handlers, mostly used for debugging */
-  MidiSamplePlayer.on("fileLoaded", () => {
+  samplePlayer.on("fileLoaded", () => {
     console.log("data loaded");
 
     function decodeCharRefs(string) {
@@ -278,7 +275,7 @@ const initPlayer = function () {
     // Pedal events should be duplicated on each track, but best not to assume
     // this will always be the case. Assume however that the events are
     // always temporally ordered in each track.
-    MidiSamplePlayer.events.forEach((track) => {
+    samplePlayer.events.forEach((track) => {
       let sustainOn = false;
       let softOn = false;
       let sustainStart = 0;
@@ -349,27 +346,46 @@ const initPlayer = function () {
     holeWidthPx = parseInt(rollMetadata["AVG_HOLE_WIDTH"]);
 
     let rollWidth = parseInt(rollMetadata["ROLL_WIDTH"]);
+
+    totalTicks = samplePlayer.totalTicks;
+    updateProgress();
+
+    openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
+
+    openSeadragon.addOnceHandler("update-viewport", () => {
+      panViewportToTick(0);
+    });
+
   });
 
-  MidiSamplePlayer.on("playing", (currentTick) => {
+  samplePlayer.on("playing", (currentTick) => {
     // Do something while player is playing
     // (this is repeatedly triggered within the play loop)
   });
 
-  MidiSamplePlayer.on("midiEvent", midiEvent);
+  samplePlayer.on("midiEvent", midiEvent);
 
-  MidiSamplePlayer.on("endOfFile", function () {
+  samplePlayer.on("endOfFile", function () {
     console.log("END OF FILE");
     stopPlayback();
     // Do something when end of the file has been reached.
     panViewportToTick(0);
   });
 
-  samplePlayer = MidiSamplePlayer;
-
-  samplePlayer.loadDataUri(currentRecording);
-
-  totalTicks = samplePlayer.totalTicks;
+  fetch('https://broadwell.github.io/javatron/midi/' + currentRecordingId + '_exp.mid')
+  .then(response => {
+    console.log(response.status);
+    if (response.status != 200) {
+      console.log("Trying raw MIDI");
+      fetch('https://broadwell.github.io/javatron/midi/' + currentRecordingId + '_note.mid')
+      .then(response => response.arrayBuffer())
+    } else {
+      return response.arrayBuffer();
+  }})
+  .then(data => {
+    currentRecording = data;
+    samplePlayer.loadArrayBuffer(currentRecording);
+  });
 };
 
 const midiEvent = function (event) {
