@@ -105,6 +105,10 @@ let openSeadragon = null;
 let firstHolePx = 0;
 let scrollTimer = null;
 let viewerId = uuidv4();
+let overlayPersist = 100; // # ticks = pixels on original roll image
+let holeOverlays = {}; // key = tick, value = div
+let holeWidth = 0;
+let holeSep = 0;
 
 let scorePages = [];
 let scoreMIDI = [];
@@ -355,6 +359,9 @@ const initPlayer = function () {
 
     let rollWidth = parseInt(rollMetadata["ROLL_WIDTH"]);
 
+    holeWidth = parseFloat(rollMetadata['AVG_HOLE_WIDTH'].replace('px',''));
+    holeSep = parseFloat(rollMetadata['HOLE_SEPARATION'].replace('px',''));
+
     totalTicks = samplePlayer.totalTicks;
     updateProgress();
 
@@ -382,6 +389,12 @@ const initPlayer = function () {
 
   // Load the raw MIDI if the expression MIDI is not available
   // XXX There's probably a more elegant way to do this...
+  // XXX Would be nice to be able to load this directly from SDR, but
+  // so far, only the records that are in a Spotlight exhibit have
+  // their MIDI files in the SDR!
+  // MIDI files for Welte red rolls are at
+  // https://raw.githubusercontent.com/pianoroll/SUPRA/master/welte-red/midi-exp/[ID]_exp.mid
+  // (but not for the Garcia-Sampedro rolls)
   fetch(BASE_DATA_URL + 'midi/' + currentRecordingId + '_exp.mid')
     .then(response => {
       if (!response.ok) {
@@ -401,11 +414,38 @@ const initPlayer = function () {
     });
 };
 
+const clearOverlays = function(newTick, allIfTrue) {
+
+  Object.keys(holeOverlays).forEach(tick => {
+    if (allIfTrue || (Math.abs(newTick - tick) > overlayPersist)) {
+      holeOverlays[tick].forEach(item => {
+        openSeadragon.viewport.viewer.removeOverlay(item);
+      });
+      delete holeOverlays[tick];
+    }
+  });
+}
+
 const midiEvent = function (event) {
   //console.log("MIDI EVENT",event);
 
-  // Do something when a MIDI event is fired.
-  // (this is the same as passing a function to MidiPlayer.Player() when instantiating).
+  clearOverlays(event.tick, false);
+
+  let linePx = firstHolePx + event.tick;
+  if (scrollUp) {
+    linePx = firstHolePx - event.tick;
+  }
+
+  /* Useful numbers for aligning overlays with roll: */
+  /*
+  rollMetadata['AVG_HOLE_WIDTH']
+  rollMetadata['HARD_MARGIN_BASS']
+  rollMetadata['HARD_MARGIN_TREBLE']
+  rollMetadata['HOLE_OFFSET']
+  rollMetadata['HOLE_SEPARATION']
+  rollMetadata['ROLL_TYPE'] // all rolls have 88 keys (right?)
+  */
+
   if (event.name === "Note on") {
     const noteNumber = event.noteNumber;
 
@@ -419,6 +459,32 @@ const midiEvent = function (event) {
       //}
       // Note on
     } else {
+
+      // The use of holeSep seems to be correct, but the X offset is a total guess
+      let dotX = (noteNumber - 10) * holeSep;
+
+      let scaleFactor = openSeadragon.viewport.viewportToImageZoom(openSeadragon.viewport.getZoom());
+
+      let dotRadius = holeWidth * scaleFactor;
+
+      let noteDot = document.createElement("div");
+      noteDot.classList.add('hole-dot');
+      noteDot.style.height = dotRadius.toString() + 'px';
+      noteDot.style.width = dotRadius.toString() + 'px';
+
+      let dotViewport = openSeadragon.viewport.imageToViewportCoordinates(
+        dotX,
+        linePx
+      );
+      
+      openSeadragon.viewport.viewer.addOverlay(noteDot, dotViewport, OpenSeadragon.Placement.CENTER);
+
+      if (holeOverlays[event.tick] === undefined) {
+        holeOverlays[event.tick] = [noteDot];
+      } else {
+        holeOverlays[event.tick].push(noteDot);
+      }
+
       let noteVelocity = playComputedExpressions ? event.velocity : DEFAULT_NOTE_VELOCITY;
 
       let updatedVolume = (noteVelocity / 128.0) * volumeRatio;
