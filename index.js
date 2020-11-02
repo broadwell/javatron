@@ -39,7 +39,8 @@ const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are s
 const DEFAULT_NOTE_VELOCITY = 33.0; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
 const HOME_ZOOM = 1;
-const BASE_DATA_URL = "https://broadwell.github.io/javatron/";
+const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
+//const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
