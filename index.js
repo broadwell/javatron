@@ -39,8 +39,8 @@ const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are s
 const DEFAULT_NOTE_VELOCITY = 33.0; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
 const HOME_ZOOM = 1;
-const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
-//const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
+//const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
+const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
@@ -116,7 +116,7 @@ let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentRecordingId = Object.keys(recordings_data)[0];
+let currentRecordingId = Object.keys(recordings_data)[1];
 let vrvToolkit = null;
 
 let scrollUp = false;
@@ -288,11 +288,12 @@ const initPlayer = function () {
     // Pedal events should be duplicated on each track, but best not to assume
     // this will always be the case. Assume however that the events are
     // always temporally ordered in each track.
-    samplePlayer.events.forEach((track) => {
+    samplePlayer.events.forEach((track, t) => {
       let sustainOn = false;
       let softOn = false;
       let sustainStart = 0;
       let softStart = 0;
+
       track.forEach((event) => {
         if (event.name === "Controller Change") {
           // Sustain pedal on/off
@@ -430,7 +431,6 @@ const clearOverlays = function(newTick, allIfTrue) {
 }
 
 const midiEvent = function (event) {
-  //console.log("MIDI EVENT",event);
 
   clearOverlays(event.tick, false);
 
@@ -439,7 +439,7 @@ const midiEvent = function (event) {
     linePx = firstHolePx - event.tick;
   }
 
-  console.log("MIDI EVENT AT TICK",event.tick,"PIXEL",linePx);
+  //console.log("MIDI EVENT AT TICK",event.tick,"PIXEL",linePx);
 
   /* Useful numbers for aligning overlays with roll: */
   /*
@@ -448,14 +448,15 @@ const midiEvent = function (event) {
   rollMetadata['HARD_MARGIN_TREBLE']
   rollMetadata['HOLE_OFFSET']
   rollMetadata['HOLE_SEPARATION']
-  rollMetadata['ROLL_TYPE'] // all rolls have 88 keys (right?)
+  rollMetadata['ROLL_TYPE'] // usually 88 keys, eventually some may have 65
   */
 
   if (event.name === "Note on") {
     const noteNumber = event.noteNumber;
 
     // Note off
-    if (event.velocity === 0) {
+    if ((event.velocity === 0) && (event.track <= 3)) {
+
       while (activeNotes.includes(parseInt(noteNumber))) {
         activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
       }
@@ -467,19 +468,32 @@ const midiEvent = function (event) {
 
       // The use of holeSep seems to be correct, but the X offset is a total guess
       let dotX = (noteNumber - 10) * holeSep;
+      
+      if (event.track <= 3) {
+        dotX += parseInt(parseFloat(holeWidth) / 2.0);
+      }
 
       let scaleFactor = openSeadragon.viewport.viewportToImageZoom(openSeadragon.viewport.getZoom());
 
       let dotRadius = holeWidth * scaleFactor;
 
       let noteDot = document.createElement("div");
-      noteDot.classList.add('hole-dot');
+      if (event.track <= 3) {
+        noteDot.classList.add('music-hole-dot');
+      } else {
+        noteDot.classList.add('control-hole-dot')
+      }
       noteDot.style.height = dotRadius.toString() + 'px';
       noteDot.style.width = dotRadius.toString() + 'px';
 
+      let dotY = linePx;
+      if (event.track <= 3) {
+        dotY += holeWidth;
+      }
+
       let dotViewport = openSeadragon.viewport.imageToViewportCoordinates(
         dotX,
-        linePx
+        dotY // Place dot a bit lower so it's inside the hole
       );
       
       openSeadragon.viewport.viewer.addOverlay(noteDot, dotViewport, OpenSeadragon.Placement.CENTER);
@@ -490,22 +504,24 @@ const midiEvent = function (event) {
         holeOverlays[event.tick].push(noteDot);
       }
 
-      let noteVelocity = playComputedExpressions ? event.velocity : DEFAULT_NOTE_VELOCITY;
+      if (event.track <= 3) {
+        let noteVelocity = playComputedExpressions ? event.velocity : DEFAULT_NOTE_VELOCITY;
 
-      let updatedVolume = (noteVelocity / 128.0) * volumeRatio;
-      if (softPedalOn) {
-        updatedVolume *= SOFT_PEDAL_RATIO;
-      }
-      if (parseInt(noteNumber) < panBoundary) {
-        updatedVolume *= leftVolumeRatio;
-      } else if (parseInt(noteNumber) >= panBoundary) {
-        updatedVolume *= rightVolumeRatio;
-      }
-      //console.log("ON", getNoteName(noteNumber), noteVelocity);
-      startNote(noteNumber, updatedVolume);
+        let updatedVolume = (noteVelocity / 128.0) * volumeRatio;
+        if (softPedalOn) {
+          updatedVolume *= SOFT_PEDAL_RATIO;
+        }
+        if (parseInt(noteNumber) < panBoundary) {
+          updatedVolume *= leftVolumeRatio;
+        } else if (parseInt(noteNumber) >= panBoundary) {
+          updatedVolume *= rightVolumeRatio;
+        }
+        //console.log("ON", getNoteName(noteNumber), noteVelocity);
+        startNote(noteNumber, updatedVolume);
 
-      if (!activeNotes.includes(noteNumber)) {
-        activeNotes.push(parseInt(noteNumber));
+        if (!activeNotes.includes(noteNumber)) {
+          activeNotes.push(parseInt(noteNumber));
+        }
       }
     }
   } else if (event.name === "Controller Change") {

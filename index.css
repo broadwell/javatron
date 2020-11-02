@@ -110,8 +110,13 @@ h3 {
 	height: 1px;
 }
 
-.hole-dot {
-	background-color: rgb(252, 255, 47);
+.music-hole-dot {
+	background-color: rgb(224, 8, 232);
+	border-radius: 50%;
+}
+
+.control-hole-dot {
+	background-color: #2edf12;
 	border-radius: 50%;
 }
 
