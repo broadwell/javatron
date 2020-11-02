@@ -35,8 +35,8 @@ const FLAT_NOTES = [
   "G",
   "Ab",
 ];
-const SOFT_PEDAL_RATIO = 0.67;
-const DEFAULT_NOTE_VELOCITY = 33.0;
+const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are struck (usually)
+const DEFAULT_NOTE_VELOCITY = 33.0; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
 const HOME_ZOOM = 1;
 const BASE_DATA_URL = "https://broadwell.github.io/javatron/";
@@ -354,6 +354,8 @@ const initPlayer = function () {
       firstHolePx = parseInt(rollMetadata["IMAGE_LENGTH"]) - firstHolePx;
     }
 
+    console.log("FIRST HOLE",firstHolePx);
+
     lastHolePx = parseInt(rollMetadata["LAST_HOLE"]);
     holeWidthPx = parseInt(rollMetadata["AVG_HOLE_WIDTH"]);
 
@@ -435,6 +437,8 @@ const midiEvent = function (event) {
   if (scrollUp) {
     linePx = firstHolePx - event.tick;
   }
+
+  console.log("MIDI EVENT AT TICK",event.tick,"PIXEL",linePx);
 
   /* Useful numbers for aligning overlays with roll: */
   /*
