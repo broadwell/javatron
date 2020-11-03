@@ -467,7 +467,15 @@ const midiEvent = function (event) {
     } else {
 
       // The use of holeSep seems to be correct, but the X offset is a total guess
-      let dotX = (noteNumber - 10) * holeSep;
+      let noteOffset = 0;
+
+      if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
+        noteOffset = noteNumber - 4;
+      } else {
+        noteOffset = noteNumber - 10;
+      }
+
+      let dotX = noteOffset * holeSep;
       
       if (event.track <= 3) {
         dotX += parseInt(parseFloat(holeWidth) / 2.0);
@@ -488,7 +496,9 @@ const midiEvent = function (event) {
 
       let dotY = linePx;
       if (event.track <= 3) {
-        dotY += holeWidth;
+        if (!scrollUp) {
+          dotY += holeWidth;
+        }
       }
 
       let dotViewport = openSeadragon.viewport.imageToViewportCoordinates(
@@ -592,6 +602,15 @@ const playPausePlayback = function () {
     });
     activeNotes = [];
     playState = "playing";
+    
+    // If we want this behavior (not panning back to the beginning
+    // after a stop until the Play button is pressed), note that it
+    // may be the case that sometimes the first note or two is lost
+    // during the scrollback. The foolproof solution would be to
+    // use an event listener to wait until the scroll is completed
+    // before starting playback, but maybe it's not necessary...
+    panViewportToTick(0);
+
     scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
     samplePlayer.play();
   }
@@ -722,7 +741,6 @@ const panViewportToTick = function (tick) {
     viewportBounds.width / 2.0,
     lineViewport.y
   );
-  openSeadragon.viewport.panTo(lineCenter);
 
   let targetProgress = parseFloat(tick) / parseFloat(totalTicks);
   let playProgress = Math.max(0, targetProgress);
@@ -731,6 +749,9 @@ const panViewportToTick = function (tick) {
   currentProgress = playProgress;
 
   updateProgress();
+
+  openSeadragon.viewport.panTo(lineCenter);
+
 };
 
 const pressSustainPedal = function () {
