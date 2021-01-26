@@ -38,9 +38,11 @@ const FLAT_NOTES = [
 const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are struck (usually)
 const DEFAULT_NOTE_VELOCITY = 33.0; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
+const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
 const HOME_ZOOM = 1;
-//const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
-const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
+const ACCENT_BUMP = 1.5; // Multiple to increase velocity while the accent button is pressed
+const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
+//const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
@@ -58,12 +60,12 @@ const recordings_data = {
     image_url:
       "https://stacks.stanford.edu/image/iiif/yj598pj2879%2Fyj598pj2879_0001/info.json",
   },
-  // pz594dj8436: {
-  //   slug: "alonso_las_corsarias",
-  //   title: "F. Alonso: Las corsarias: Selecciones",
-  //   image_url:
-  //     "https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json",
-  // },
+  pz594dj8436: {
+    slug: "alonso_las_corsarias",
+    title: "F. Alonso: Las corsarias: Selecciones",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json",
+  },
   dj406yq6980: {
     slug: "brassin_magic_fire",
     title: "Brassin-Wagner/Hofmann - Feuerzauber",
@@ -75,6 +77,18 @@ const recordings_data = {
     title: "Peterossi: Galleguita: tango argentino",
     image_url:
       "https://stacks.stanford.edu/image/iiif/rx870zt5437%2Frx870zt5437_0002/info.json",
+  },
+  wt621xq0875: {
+    slug: "lamond_pathetique",
+    title: "Beethoven/Lamond: Sonate pathétique",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/wt621xq0875%2Fwt621xq0875_0001/info.json",
+  },
+  kr397bv2881: {
+    slug: "lamond_pathetique_mvt3",
+    title: "Beethoven/Lamond: Sonate pathétique mvt. 3",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/kr397bv2881%2Fkr397bv2881_0001/info.json",
   }
 };
 
@@ -101,6 +115,7 @@ let softPedalLocked = false;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
 let playComputedExpressions = true;
+let accentOn = false;
 
 let openSeadragon = null;
 let firstHolePx = 0;
@@ -126,6 +141,10 @@ let keyboard = null;
 const startNote = function (noteNumber, velocity) {
   if (velocity === null) {
     velocity = DEFAULT_NOTE_VELOCITY / 128.0;
+  }
+
+  if (accentOn) {
+    velocity = velocity * ACCENT_BUMP;
   }
 
   velocity = Math.min(velocity, 1.0);
@@ -874,6 +893,22 @@ const updateVolumeSlider = function (event) {
   }
 };
 
+// XXX Ugh manual styling -- just for prototyping
+const toggleAccent = function (event) {
+  if (event.type == "mousedown") {
+    accentOn = true;
+    document.getElementById("accentButton").style.backgroundColor = "red";
+  } else if (event.type == "mouseover") {
+    document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
+  } else if (event.type == "mouseup") {
+    accentOn = false;
+    document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
+  } else if (event.type == "mouseout") {
+    accentOn = false;
+    document.getElementById("accentButton").style.backgroundColor = "white";
+  }
+}
+
 const toggleExpressions = function (event) {
   playComputedExpressions = event.target.checked;
 };
@@ -1004,7 +1039,7 @@ let piano = new Piano({
   // local folder seems problematic...
   url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
   //url: '/audio/', // note sure we want to try to bundle these...
-  velocities: 8,
+  velocities: DEFAULT_VELOCITIES,
   release: true,
   pedal: true,
   maxPolyphony: 64,
@@ -1154,3 +1189,19 @@ document
 document
   .getElementById("playExpressions")
   .addEventListener("click", toggleExpressions, false);
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mousedown", toggleAccent, false);
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mouseup", toggleAccent, false);
+
+  document
+  .getElementById("accentButton")
+  .addEventListener("mouseover", toggleAccent, false)
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mouseout", toggleAccent, false)

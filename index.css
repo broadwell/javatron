@@ -126,11 +126,11 @@ h3 {
 }
 
 div.score svg {
-width: 500px;
-height: 600px;
-overflow: visible;
-overflow-x: visible;
-overflow-y: visible;
+	width: 500px;
+	height: 600px;
+	overflow: visible;
+	overflow-x: visible;
+	overflow-y: visible;
 }
 
 #volumes {
