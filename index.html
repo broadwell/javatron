@@ -13,10 +13,6 @@
         <strong>PURL: </strong><span id="purl"></span> <br />
         <!-- <strong>Call No: </strong><span id="callno"></span> <br /> -->
         <hr />
-        <div>
-          <input type="checkbox" id="playExpressions" name="playExpressionsCheckbox" checked>
-          <label for="playExpressions">Play computed expressions</label>
-        </div>
         <div>Progress:
           <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
         </div>
@@ -81,23 +77,69 @@
     </div>
     <div class="keyboard piano-keyboard-horizontal"></div>
     <div class="flex-row main-row">
-      <button class="center-button" id="softPedal" name="soft" background="white">SOFT</button>
-      <button class="center-button" id="accentButton" name="accent" background="white">ACCENT</button>
-      <button class="center-button" id="sustainPedal" name="sustain" background="white">SUST</button>
+      <button class="pedal-button" id="softPedal" name="soft" background="white">SOFT<br>(w)</button>
+      <button class="pedal-button" id="accentButton" name="accent" background="white">ACCENT<br>(.)</button>
+      <button class="pedal-button" id="sustainPedal" name="sustain" background="white">SUST<br>(v)</button>
     </div>
     <div class="flex-container main-row" display="flex">
       <div>
         <button id="playPause" background="white" disabled>Play/Pause</button>
         <button id="stop" background="white">Stop</button>
       </div>
-      <div>Tempo:
-        <input type="range" min="0" max="180" step="1" class="slider" id="tempoSlider" />
-        <output for="tempoSlider" id="tempo"></output>
+      <div>
+        <div>
+          <input type="checkbox" id="playExpressions" name="playExpressionsCheckbox" checked>
+          <label for="playExpressions">Play expressions</label>
+        </div>
+        <div>
+          <input type="checkbox" id="useRollPedaling" name="useRollPedalingCheckbox" checked>
+          <label for="useRollPedaling">Use roll pedaling</label>
+        </div>
       </div>
-      <div>Master Volume:
-        <input type="range" min="0" max="4" step=".1" class="slider" name="volume" id="masterVolumeSlider" />
-        <output for="masterVolumeSlider" id="masterVolume"></output>
+      <div><strong>Tempo</strong> (e-/r+)<br>0
+        <input type="range" min="0" max="180" step="1" class="slider" id="tempoSlider" list="tempoticks">
+          <datalist id="tempoticks">
+            <option value="0" label="0"></option>
+            <option value="10"></option>
+            <option value="20"></option>
+            <option value="30"></option>
+            <option value="40"></option>
+            <option value="50"></option>
+            <option value="60" label="60"></option>
+            <option value="70"></option>
+            <option value="80"></option>
+            <option value="90"></option>
+            <option value="100"></option>
+            <option value="110"></option>
+            <option value="120" label="120"></option>
+            <option value="130"></option>
+            <option value="140"></option>
+            <option value="150"></option>
+            <option value="160"></option>
+            <option value="170"></option>
+            <option value="180" label="180"></option>
+          </datalist>
+        </input>180<br>
+        Value: <output for="tempoSlider" id="tempo"></output>
       </div>
+      <div><strong>Volume</strong> ([-/]+)<br>0
+        <input type="range" min="0" max="4" step=".1" class="slider" name="volume" id="masterVolumeSlider" list="volumeticks">
+          <datalist id="volumeticks">
+            <option value="0" label="0"></option>
+            <option value=".5" label=".5"></option>
+            <option value="1" label="1"></option>
+            <option value="1.5" label="1.5"></option>
+            <option value="2" label="2"></option>
+            <option value="2.5" label="2.5"></option>
+            <option value="3" label="3"></option>
+            <option value="3.5" label="3.5"></option>
+            <option value="4" label="4"></option>
+          </datalist>
+        </input>4<br>
+        Value: <output for="masterVolumeSlider" id="masterVolume"></output>
+      </div>
+    </div>
+    <div class="flex-container main-row" display="flex">
       <div >Bass Volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
         <output for="leftVolumeSlider" id="leftVolume"></output>

@@ -41,7 +41,16 @@ const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "p
 const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
 const HOME_ZOOM = 1;
 const ACCENT_BUMP = 1.5; // Multiple to increase velocity while the accent button is pressed
+const TEMPO_KEY_DELTA = 5; // Number of tempo "bpm" to + or - on keyboard input
+const VOLUME_KEY_DELTA = .2; // Proportion to + or - volume on keyboard input
 const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
+const SUSTAIN_PEDAL_KEY = "KeyV";
+const SOFT_PEDAL_KEY = "KeyW";
+const TEMPO_SLOWER_KEY = "KeyE";
+const TEMPO_FASTER_KEY = "KeyR";
+const VOLUME_DOWN_KEY = "BracketLeft";
+const VOLUME_UP_KEY = "BracketRight";
+const ACCENT_KEY = "Period";
 //const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
@@ -115,6 +124,7 @@ let softPedalLocked = false;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
 let playComputedExpressions = true;
+let useRollPedaling = true;
 let accentOn = false;
 
 let openSeadragon = null;
@@ -365,9 +375,11 @@ const initPlayer = function () {
 
     scrollUp = false;
     document.getElementById("playExpressions").disabled = false;
+    document.getElementById("useRollPedaling").disabled = false;
     if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
       scrollUp = true;
       document.getElementById("playExpressions").disabled = true;
+      document.getElementById("useRollPedaling").disabled = true;
     }
 
     firstHolePx = parseInt(rollMetadata["FIRST_HOLE"]);
@@ -375,7 +387,7 @@ const initPlayer = function () {
       firstHolePx = parseInt(rollMetadata["IMAGE_LENGTH"]) - firstHolePx;
     }
 
-    console.log("FIRST HOLE",firstHolePx);
+    //console.log("FIRST HOLE",firstHolePx);
 
     lastHolePx = parseInt(rollMetadata["LAST_HOLE"]);
     holeWidthPx = parseInt(rollMetadata["AVG_HOLE_WIDTH"]);
@@ -556,14 +568,14 @@ const midiEvent = function (event) {
   } else if (event.name === "Controller Change") {
     // Controller Change number=64 is a sustain pedal event;
     // 127 is down (on), 0 is up (off)
-    if (event.number == 64 && !sustainPedalLocked) {
+    if (event.number == 64 && !sustainPedalLocked && useRollPedaling) {
       if (event.value == 127) {
         pressSustainPedal();
       } else if (event.value == 0) {
         releaseSustainPedal();
       }
       // 67 is the soft (una corda) pedal
-    } else if (event.number == 67 && !softPedalLocked) {
+    } else if (event.number == 67 && !softPedalLocked && useRollPedaling) {
       if (event.value == 127) {
         //console.log("SOFT ON");
         softPedalOn = true;
@@ -851,14 +863,30 @@ const midiNotePlayer = function (noteNumber, onIfTrue) {
 };
 
 const updateTempoSlider = function (event) {
-  playbackTempo = event.target.value * tempoRatio;
+
+  if (event.type == "change") {
+    sliderTempo = event.target.value;  
+  } else if (event.type == "keydown") {
+    if (event.code == TEMPO_FASTER_KEY) {
+      sliderTempo += TEMPO_KEY_DELTA;
+    } else if (event.code == TEMPO_SLOWER_KEY) {
+      sliderTempo -= TEMPO_KEY_DELTA;
+    }
+    document.getElementById("tempoSlider").value = sliderTempo;
+  } else {
+    return;
+  }
+
+  document.getElementById("tempo").value = sliderTempo + ' "bpm"';
+
+  playbackTempo = sliderTempo * tempoRatio;
 
   if (scorePlayer && scorePlaying) {
     scorePlayer.pause();
     scorePlayer.setTempo(playbackTempo);
     scorePlayer.play();
-    sliderTempo = event.target.value;
-    return;
+    //sliderTempo = event.target.value;
+    //return;
   }
 
   // If not paused during tempo change, player jumps back a bit on
@@ -873,45 +901,73 @@ const updateTempoSlider = function (event) {
     samplePlayer.setTempo(playbackTempo);
   }
 
-  sliderTempo = event.target.value;
-
-  document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 };
 
 const updateVolumeSlider = function (event) {
-  let sliderName = event.target.name;
 
-  if (sliderName === "volume") {
-    volumeRatio = event.target.value;
+  let sliderName = "volume";
+
+  // At present, only the main volume is key-mapped
+  if (event.type == "keydown") {
+    if (event.code == VOLUME_UP_KEY) {
+      volumeRatio += VOLUME_KEY_DELTA;
+    } else if (event.code == VOLUME_DOWN_KEY) {
+      volumeRatio -= VOLUME_KEY_DELTA;
+    }
+    volumeRatio = Math.round(10*volumeRatio)/10; 
     document.getElementById("masterVolume").value = volumeRatio;
-  } else if (sliderName === "leftVolume") {
-    leftVolumeRatio = event.target.value;
-    document.getElementById("leftVolume").value = leftVolumeRatio;
-  } else if (sliderName === "rightVolume") {
-    rightVolumeRatio = event.target.value;
-    document.getElementById("rightVolume").value = rightVolumeRatio;
+    document.getElementById("masterVolumeSlider").value = volumeRatio;
+  } else {
+    sliderName = event.target.name;
+
+    if (sliderName === "volume") {
+      volumeRatio = event.target.value;
+      document.getElementById("masterVolume").value = volumeRatio;
+    } else if (sliderName === "leftVolume") {
+      leftVolumeRatio = event.target.value;
+      document.getElementById("leftVolume").value = leftVolumeRatio;
+    } else if (sliderName === "rightVolume") {
+      rightVolumeRatio = event.target.value;
+      document.getElementById("rightVolume").value = rightVolumeRatio;
+    }
   }
 };
 
 // XXX Ugh manual styling -- just for prototyping
 const toggleAccent = function (event) {
-  if (event.type == "mousedown") {
-    accentOn = true;
-    document.getElementById("accentButton").style.backgroundColor = "red";
-  } else if (event.type == "mouseover") {
-    document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
-  } else if (event.type == "mouseup") {
-    accentOn = false;
-    document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
-  } else if (event.type == "mouseout") {
-    accentOn = false;
-    document.getElementById("accentButton").style.backgroundColor = "white";
+  switch(event.type) {
+    case "mousedown":
+      accentOn = true;
+      document.getElementById("accentButton").style.backgroundColor = "red";
+      break;
+    case "mouseover":
+      document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
+      break;
+    case "mouseup":
+      accentOn = false;
+      document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
+      break;
+    case "mouseout":
+      accentOn = false;
+      document.getElementById("accentButton").style.backgroundColor = "white";
+      break;
+    case "keydown":
+      accentOn = true;
+      document.getElementById("accentButton").style.backgroundColor = "red";
+      break;
+    case "keyup":
+      accentOn = false;
+      document.getElementById("accentButton").style.backgroundColor = "white";
   }
 }
 
 const toggleExpressions = function (event) {
   playComputedExpressions = event.target.checked;
 };
+
+const toggleRollPedaling = function (event) {
+  useRollPedaling = event.target.checked;
+}
 
 const scorePlayback = function (e) {
   if (scorePlayer === null) {
@@ -1079,11 +1135,14 @@ document.querySelectorAll("input.samplevol").forEach((input) => {
 });
 
 document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
+
 document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
   document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
+
   if (playState === "playing") {
     playPausePlayback();
   }
+
   document.getElementById("playPause").disabled = true;
   document.getElementById("playScorePage").disabled = true;
   document.getElementById("stop").disabled = true;
@@ -1191,6 +1250,10 @@ document
   .addEventListener("click", toggleExpressions, false);
 
 document
+  .getElementById("useRollPedaling")
+  .addEventListener("click", toggleRollPedaling, false);
+
+document
   .getElementById("accentButton")
   .addEventListener("mousedown", toggleAccent, false);
 
@@ -1205,3 +1268,61 @@ document
 document
   .getElementById("accentButton")
   .addEventListener("mouseout", toggleAccent, false)
+
+// Keyboard events!
+const keyboardKeyControl = function(event) {
+  switch(event.code) {
+    case SUSTAIN_PEDAL_KEY:
+      if (event.type == "keydown") {
+        if (sustainPedalOn) {
+          break;
+        }
+        pressSustainPedal();
+        break;
+      } else if (event.type == "keyup") {
+        if (!sustainPedalOn) {
+          break;
+        }
+        releaseSustainPedal();
+      }
+      break;
+    case SOFT_PEDAL_KEY:
+      if (event.type == "keydown") {
+        if (softPedalOn) {
+          break;
+        }
+        softPedalOn = true;
+        document.getElementById("softPedal").classList.add("pressed");
+      } else {
+        if (!softPedalOn) {
+          break;
+        }
+        softPedalOn = false;
+        document.getElementById("softPedal").classList.remove("pressed");
+      }
+      break;
+    case TEMPO_FASTER_KEY:
+      updateTempoSlider(event);
+      break;
+    case TEMPO_SLOWER_KEY:
+      updateTempoSlider(event);
+      break;
+    case VOLUME_UP_KEY:
+      updateVolumeSlider(event);
+      break;
+    case VOLUME_DOWN_KEY:
+      updateVolumeSlider(event);
+      break;
+    case ACCENT_KEY:
+      toggleAccent(event);
+      break;
+  }
+}
+
+window.addEventListener("keydown", function(event) {
+  keyboardKeyControl(event);
+}, true);
+
+window.addEventListener("keyup", function(event) {
+  keyboardKeyControl(event);
+}, true);
