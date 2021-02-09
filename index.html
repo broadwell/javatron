@@ -77,9 +77,9 @@
     </div>
     <div class="keyboard piano-keyboard-horizontal"></div>
     <div class="flex-row main-row">
-      <button class="pedal-button" id="softPedal" name="soft" background="white">SOFT<br>(w)</button>
-      <button class="pedal-button" id="accentButton" name="accent" background="white">ACCENT<br>(.)</button>
-      <button class="pedal-button" id="sustainPedal" name="sustain" background="white">SUST<br>(v)</button>
+      <button class="pedal-button" id="softPedal" name="soft" background="white">SOFT<br>(q)</button>
+      <button class="pedal-button" id="accentButton" name="accent" background="white">ACCENT<br>(,)</button>
+      <button class="pedal-button" id="sustainPedal" name="sustain" background="white">SUST<br>(c)</button>
     </div>
     <div class="flex-container main-row" display="flex">
       <div>
@@ -95,8 +95,11 @@
           <input type="checkbox" id="useRollPedaling" name="useRollPedalingCheckbox" checked>
           <label for="useRollPedaling">Use roll pedaling</label>
         </div>
+        <div>
+          NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
+        </div>
       </div>
-      <div><strong>Tempo</strong> (e-/r+)<br>0
+      <div><strong>Tempo</strong> (w-/e+)<br>0
         <input type="range" min="0" max="180" step="1" class="slider" id="tempoSlider" list="tempoticks">
           <datalist id="tempoticks">
             <option value="0" label="0"></option>

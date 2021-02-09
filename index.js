@@ -43,14 +43,18 @@ const HOME_ZOOM = 1;
 const ACCENT_BUMP = 1.5; // Multiple to increase velocity while the accent button is pressed
 const TEMPO_KEY_DELTA = 5; // Number of tempo "bpm" to + or - on keyboard input
 const VOLUME_KEY_DELTA = .2; // Proportion to + or - volume on keyboard input
+const VOL_ACCENT_MOD_DELTA = .5;
+const PEDAL_TEMPO_MOD_DELTA = .4;
 const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
-const SUSTAIN_PEDAL_KEY = "KeyV";
-const SOFT_PEDAL_KEY = "KeyW";
-const TEMPO_SLOWER_KEY = "KeyE";
-const TEMPO_FASTER_KEY = "KeyR";
+const SUSTAIN_PEDAL_KEY = "KeyC";
+const SOFT_PEDAL_KEY = "KeyQ";
+const TEMPO_SLOWER_KEY = "KeyW";
+const TEMPO_FASTER_KEY = "KeyE";
+const PEDAL_TEMPO_MODIFY_KEY = "ShiftLeft";
 const VOLUME_DOWN_KEY = "BracketLeft";
 const VOLUME_UP_KEY = "BracketRight";
-const ACCENT_KEY = "Period";
+const ACCENT_KEY = "Comma";
+const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
 //const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
@@ -126,6 +130,10 @@ let pedalMap = null;
 let playComputedExpressions = true;
 let useRollPedaling = true;
 let accentOn = false;
+let volAccentModOn = false;
+let pedalTempoModOn = false;
+let volAccentModDelta = 1;
+let pedalTempoModDelta = 1;
 
 let openSeadragon = null;
 let firstHolePx = 0;
@@ -154,7 +162,7 @@ const startNote = function (noteNumber, velocity) {
   }
 
   if (accentOn) {
-    velocity = velocity * ACCENT_BUMP;
+    velocity = velocity * (ACCENT_BUMP * volAccentModDelta);
   }
 
   velocity = Math.min(velocity, 1.0);
@@ -550,7 +558,11 @@ const midiEvent = function (event) {
 
         let updatedVolume = (noteVelocity / 128.0) * volumeRatio;
         if (softPedalOn) {
-          updatedVolume *= SOFT_PEDAL_RATIO;
+          if (pedalTempoModOn) {
+            updatedVolume *= SOFT_PEDAL_RATIO + ((1 - SOFT_PEDAL_RATIO) * pedalTempoModDelta);
+          } else {
+            updatedVolume *= SOFT_PEDAL_RATIO;
+          }
         }
         if (parseInt(noteNumber) < panBoundary) {
           updatedVolume *= leftVolumeRatio;
@@ -849,7 +861,11 @@ const midiNotePlayer = function (noteNumber, onIfTrue) {
   if (onIfTrue) {
     let updatedVolume = (DEFAULT_NOTE_VELOCITY / 128.0) * volumeRatio;
     if (softPedalOn) {
-      updatedVolume *= SOFT_PEDAL_RATIO;
+      if (pedalTempoModOn) {
+        updatedVolume *= SOFT_PEDAL_RATIO + ((1 - SOFT_PEDAL_RATIO) * PEDAL_TEMPO_MOD_DELTA);
+      } else {
+        updatedVolume *= SOFT_PEDAL_RATIO;
+      }
     }
     if (parseInt(noteNumber) < HALF_BOUNDARY) {
       updatedVolume *= leftVolumeRatio;
@@ -868,9 +884,9 @@ const updateTempoSlider = function (event) {
     sliderTempo = event.target.value;  
   } else if (event.type == "keydown") {
     if (event.code == TEMPO_FASTER_KEY) {
-      sliderTempo += TEMPO_KEY_DELTA;
+      sliderTempo += (TEMPO_KEY_DELTA * pedalTempoModDelta);
     } else if (event.code == TEMPO_SLOWER_KEY) {
-      sliderTempo -= TEMPO_KEY_DELTA;
+      sliderTempo -= (TEMPO_KEY_DELTA * pedalTempoModDelta);
     }
     document.getElementById("tempoSlider").value = sliderTempo;
   } else {
@@ -910,9 +926,9 @@ const updateVolumeSlider = function (event) {
   // At present, only the main volume is key-mapped
   if (event.type == "keydown") {
     if (event.code == VOLUME_UP_KEY) {
-      volumeRatio += VOLUME_KEY_DELTA;
+      volumeRatio += (VOLUME_KEY_DELTA * volAccentModDelta);
     } else if (event.code == VOLUME_DOWN_KEY) {
-      volumeRatio -= VOLUME_KEY_DELTA;
+      volumeRatio -= (VOLUME_KEY_DELTA * volAccentModDelta);
     }
     volumeRatio = Math.round(10*volumeRatio)/10; 
     document.getElementById("masterVolume").value = volumeRatio;
@@ -967,6 +983,11 @@ const toggleExpressions = function (event) {
 
 const toggleRollPedaling = function (event) {
   useRollPedaling = event.target.checked;
+  if (!useRollPedaling) {
+    releaseSustainPedal();
+    softPedalOn = false;
+    document.getElementById("softPedal").classList.remove("pressed");
+  }
 }
 
 const scorePlayback = function (e) {
@@ -1004,7 +1025,6 @@ const scorePlayback = function (e) {
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
-    piano.pedalUp();
 
     if (highlightedNotes && highlightedNotes.length > 0) {
       highlightedNotes.forEach((noteId) => {
@@ -1272,6 +1292,24 @@ document
 // Keyboard events!
 const keyboardKeyControl = function(event) {
   switch(event.code) {
+    case PEDAL_TEMPO_MODIFY_KEY:
+      if (event.type == "keydown") {
+        pedalTempoModOn = true;
+        pedalTempoModDelta = PEDAL_TEMPO_MOD_DELTA;
+      } else if (event.type == "keyup") {
+        pedalTempoModOn = false;
+        pedalTempoModDelta = 1;
+      }
+      break;
+    case VOL_ACCENT_MODIFY_KEY:
+      if (event.type == "keydown") {
+        volAccentModOn = true;
+        volAccentModDelta = VOL_ACCENT_MOD_DELTA;
+      } else if (event.type == "keyup") {
+        volAccentModOn = false;
+        volAccentModDelta = 1;
+      }
+      break;
     case SUSTAIN_PEDAL_KEY:
       if (event.type == "keydown") {
         if (sustainPedalOn) {
