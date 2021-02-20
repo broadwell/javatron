@@ -61,6 +61,7 @@
     </div>
     <div class="flex-row-left main-row">
       <div name="osdLair" class="osdLair"></div>
+      <!--
       <div class="score" width="500px" height="600px">
         <div class="flex-row-left indented-row">
           <span>Score playback:</span>
@@ -73,6 +74,19 @@
           <button id="nextScorePage" name="nextPage">Next</button>
         </div>
         <div id="scorePage"></div>
+      </div>
+      -->
+      <div>
+        <div class="handtracker" width="500px" height="600px">
+          <canvas id="canvas" class="border canvasbox">
+            <video class="videobox canvasbox" autoplay="autoplay" id="myvideo"></video>
+          </canvas>
+        </div>
+        <div class="flex-row">
+          <button class="pedal-button" id="trackbutton" class="bx--btn bx--btn--secondary" type="button" disabled>
+            THERANOLA ON
+          </button>
+        </div>
       </div>
     </div>
     <div class="keyboard piano-keyboard-horizontal"></div>

@@ -5,6 +5,7 @@ import verovio from "verovio";
 import { v4 as uuidv4 } from "uuid";
 import Keyboard from "piano-keyboard";
 import { Piano } from "@tonejs/piano";
+import * as handTrack from 'handtrackjs';
 
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = [
@@ -61,6 +62,12 @@ const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
 let scoreData = require("./scoredata.mei.json");
 
 const recordings_data = {
+  rx870zt5437: {
+    slug: "peterossi_tango_argentino",
+    title: "Peterossi: Galleguita: tango argentino",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/rx870zt5437%2Frx870zt5437_0002/info.json",
+  },
   zb497jz4405: {
     slug: "mozart_rondo_alla_turca",
     title: "Mozart/Reinecke - Türkischer Marsch",
@@ -84,12 +91,6 @@ const recordings_data = {
     title: "Brassin-Wagner/Hofmann - Feuerzauber",
     image_url:
       "https://stacks.stanford.edu/image/iiif/dj406yq6980%2Fdj406yq6980_0001/info.json",
-  },
-  rx870zt5437: {
-    slug: "peterossi_tango_argentino",
-    title: "Peterossi: Galleguita: tango argentino",
-    image_url:
-      "https://stacks.stanford.edu/image/iiif/rx870zt5437%2Frx870zt5437_0002/info.json",
   },
   wt621xq0875: {
     slug: "lamond_pathetique",
@@ -149,7 +150,7 @@ let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentRecordingId = Object.keys(recordings_data)[1];
+let currentRecordingId = Object.keys(recordings_data)[0];
 let vrvToolkit = null;
 
 let scrollUp = false;
@@ -214,7 +215,7 @@ const loadRecording = function (e, newRecordingId) {
   scorePlayer = null;
 
   /* load the MEI data as string into the toolkit */
-  if (recordingSlug in scoreData) {
+  if ((recordingSlug in scoreData) && document.getElementById("scorePlayer")) {
     vrvToolkit.loadData(scoreData[recordingSlug]);
 
     /* render the fist page as SVG */
@@ -880,6 +881,8 @@ const midiNotePlayer = function (noteNumber, onIfTrue) {
 
 const updateTempoSlider = function (event) {
 
+  console.log("TEMPO UPDATED",event);
+
   if (event.type == "change") {
     sliderTempo = event.target.value;  
   } else if (event.type == "keydown") {
@@ -1125,7 +1128,9 @@ let loadPiano = piano.load();
 Promise.all([loadPiano]).then(() => {
   console.log("Piano loaded");
   document.getElementById("playPause").disabled = false;
-  document.getElementById("playScorePage").disabled = false;
+  if (document.getElementById("playScorePage")) {
+    document.getElementById("playScorePage").disabled = false;
+  }
   globalPiano = piano;
 });
 
@@ -1164,9 +1169,11 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
   }
 
   document.getElementById("playPause").disabled = true;
-  document.getElementById("playScorePage").disabled = true;
+  if (document.getElementById("playScorePage")) {
+    document.getElementById("playScorePage").disabled = true;
+    document.getElementById("stopScorePage").disabled = true;
+  }
   document.getElementById("stop").disabled = true;
-  document.getElementById("stopScorePage").disabled = true;
   globalPiano.dispose();
 
   piano = new Piano({
@@ -1190,9 +1197,11 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
     });
 
     document.getElementById("playPause").disabled = false;
-    document.getElementById("playScorePage").disabled = false;
+    if (document.getElementById("playScorePage")) {
+      document.getElementById("playScorePage").disabled = false;
+      document.getElementById("stopScorePage").disabled = false;
+    }
     document.getElementById("stop").disabled = false;
-    document.getElementById("stopScorePage").disabled = false;
 
     globalPiano = piano;
     if (playState === "paused") {
@@ -1251,19 +1260,22 @@ document
   .getElementById("progressSlider")
   .addEventListener("input", skipToProgress, false);
 
-document
-  .getElementById("prevScorePage")
-  .addEventListener("click", changeScorePage, false);
-document
-  .getElementById("nextScorePage")
-  .addEventListener("click", changeScorePage, false);
+if (document.getElementById("playScorePage")) {
 
-document
-  .getElementById("playScorePage")
-  .addEventListener("click", scorePlayback, false);
-document
-  .getElementById("stopScorePage")
-  .addEventListener("click", scorePlayback, false);
+  document
+    .getElementById("prevScorePage")
+    .addEventListener("click", changeScorePage, false);
+  document
+    .getElementById("nextScorePage")
+    .addEventListener("click", changeScorePage, false);
+
+  document
+    .getElementById("playScorePage")
+    .addEventListener("click", scorePlayback, false);
+  document
+    .getElementById("stopScorePage")
+    .addEventListener("click", scorePlayback, false);
+}
 
 document
   .getElementById("playExpressions")
@@ -1364,3 +1376,151 @@ window.addEventListener("keydown", function(event) {
 window.addEventListener("keyup", function(event) {
   keyboardKeyControl(event);
 }, true);
+
+// Check for Web MIDI support, because why not
+if (navigator.requestMIDIAccess) {
+  console.log('This browser supports WebMIDI!');
+  navigator.requestMIDIAccess()
+    .then(function(access) {
+
+      // Get lists of available MIDI controllers
+      const inputs = access.inputs.values();
+      const outputs = access.outputs.values();
+
+      /*let result = inputs.next();
+        while (result) {
+          console.log(result);
+          result = inputs.next();
+      }*/
+
+      console.log(access.sysexEnabled);
+
+      Array.from(access.inputs).forEach(input => {
+        input[1].onmidimessage = (msg) => {
+          if (msg.data.length > 1) {
+            // 176 probably = control change; 64 = sustain pedal
+            // SUSTAIN PEDAL MSGS ARE 176, 64, 0-127
+            // KEYPRESS MSGS ARE 144, [MIDI_NUMBER], 0-100?
+            if ((msg.data[0] == 176) && (msg.data[1] == 64)) {
+              if (msg.data[2] > 0) {
+                pressSustainPedal();
+              } else {
+                releaseSustainPedal();
+              }
+            }
+            //console.log(msg);
+          }
+        }
+      })
+
+      access.onstatechange = function(e) {
+        // Print information about the (dis)connected MIDI controller
+        console.log(e.port.name, e.port.manufacturer, e.port.state);
+      };
+    });
+} else {
+  console.log('WebMIDI is not supported in this browser.');
+}
+
+let model = null;
+let videoControl = false;
+const VIDEO_INTERVAL = 500;
+const video = document.getElementById("myvideo");
+const canvas = document.getElementById("canvas");
+const context = canvas.getContext("2d");
+const modelParams = {
+    flipHorizontal: true,   // flip e.g for video  
+    maxNumBoxes: 2,         // maximum number of boxes to detect
+    iouThreshold: 0.7,      // ioU threshold for non-max suppression
+    scoreThreshold: 0.8,     // confidence threshold for predictions.
+    imageScaleFactor: 0.5
+}
+
+function getBBoxMidpoint(bbox) {
+  let midX = bbox[0] + bbox[2]/2.0;
+  let midY = bbox[1] + bbox[3]/2.0;
+  return [midX, midY];
+}
+
+function interpretGestures(predictions) {
+
+  // predictions is an array of {bbox: [minx, miny, dx, dy], class, score}
+  if (predictions.length == 0) {
+    return;
+  }
+
+  // First hand
+  let firstHandPoint = getBBoxMidpoint(predictions[0].bbox);
+  let handVolRatio = (1.0 - (firstHandPoint[1] / parseFloat(video.height))) * 4.0;
+  volumeRatio = Math.round(10*handVolRatio)/10;
+  document.getElementById("masterVolumeSlider").value = volumeRatio;
+  document.getElementById("masterVolume").value = volumeRatio;
+
+  let handTempoRatio = firstHandPoint[0] / parseFloat(video.width);
+  let handTempo = 180.0 * handTempoRatio;
+
+  if (Math.abs(sliderTempo - handTempo) / 180.0 > .01) {
+
+    sliderTempo = Math.round(10*handTempo)/10;
+
+    document.getElementById("tempoSlider").value = sliderTempo;
+    document.getElementById("tempo").value = sliderTempo + ' "bpm"';
+
+    playbackTempo = sliderTempo * tempoRatio;
+
+    if (samplePlayer.isPlaying()) {
+      samplePlayer.pause();
+      samplePlayer.setTempo(playbackTempo);
+      samplePlayer.play();
+    } else {
+      samplePlayer.setTempo(playbackTempo);
+    }
+
+  }
+  //handTempoPoint = getBBoxMidpoint(predictions[predictions.length-1].bbox);
+
+}
+
+function runDetection() {
+    model.detect(video).then(predictions => {
+        model.renderPredictions(predictions, canvas, context, video);
+        interpretGestures(predictions);
+        setTimeout(() => {  requestAnimationFrame(runDetection); }, VIDEO_INTERVAL);
+    });
+}
+
+function startVideo() {
+    handTrack.startVideo(video).then(function (status) {
+        console.log("video started", status);
+        if (status) {
+            videoControl = true; 
+            runDetection();
+        }
+    });
+}
+
+function toggleVideo() {
+    if (!videoControl) {
+        trackButton.innerText = "THERANOLA ON";
+        startVideo();
+        videoControl = true;
+    } else {
+        trackButton.innerText = "THERANOLA OFF";
+        handTrack.stopVideo(video);
+        videoControl = false; 
+    }
+} 
+
+const trackButton = document.getElementById("trackbutton");
+
+trackButton
+  .addEventListener("click", toggleVideo, false)
+
+handTrack.load(modelParams).then(lmodel => {
+  model = lmodel;
+  console.log("model loaded");
+  trackButton.disabled = false;
+  if (videoControl) {
+    startVideo();
+  }
+});
