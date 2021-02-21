@@ -145,6 +145,7 @@ let holeWidth = 0;
 let holeSep = 0;
 
 let showScore = false;
+let noScore = true;
 let scoreStorage = null;
 let recordingSlug = null;
 let scorePages = [];
@@ -185,16 +186,33 @@ const initScorePlayer = function () {
 
   scorePlayer = null;
 
-  if (!showScore) {
+  if (recordingSlug in scoreData) {
+    noScore = false;
+    document.getElementById("showScore").disabled = false;
+  } else {
+    noScore = true;
+    document.getElementById("showScore").disabled = true;
+  }
+
+  if (!showScore || noScore) {
     if (document.getElementById("scoreWrapper").hasChildNodes()) {
-      scoreStorage = document.getElementById("scoreWrapper").children[0];
-      scoreStorage.remove();
+      let scoreNode = document.getElementById("scoreWrapper").children[0];
+      if (scoreNode) {
+        scoreStorage = scoreNode.cloneNode(true);
+        scoreNode.remove();
+      }
     }
     return;
   }
 
-  /* load the MEI data as string into the toolkit */
-  if (recordingSlug in scoreData) {
+  /* load the MEI data as a string into the toolkit */
+
+  if (showScore && !noScore) {
+
+    if (scoreStorage) {
+      document.getElementById("scoreWrapper").appendChild(scoreStorage);
+    }
+
     vrvToolkit.loadData(scoreData[recordingSlug]);
 
     /* render the fist page as SVG */
@@ -427,6 +445,8 @@ const initPlayer = function () {
         panViewportToTick(0);
       });
     }
+    currentTick = 0;
+    playerProgress();
 
   });
 
@@ -1069,8 +1089,11 @@ const toggleScore = function (event) {
         clearScrollTimer();
       }
     }
-    scoreStorage = document.getElementById("scoreWrapper").children[0];
-    scoreStorage.remove();
+    let scoreNode = document.getElementById("scoreWrapper").children[0];
+    if (scoreNode) {
+      scoreStorage = scoreNode.cloneNode(true);
+      scoreNode.remove();
+    }
     scorePlayer = null;
   }
 }
