@@ -146,6 +146,7 @@ let holeSep = 0;
 
 let showScore = false;
 let scoreStorage = null;
+let recordingSlug = null;
 let scorePages = [];
 let scoreMIDI = [];
 let scorePlaying = false;
@@ -274,10 +275,7 @@ const loadRecording = function (e, newRecordingId) {
     samplePlayer.stop();
     playState = "stopped";
   }
-  if (scrollTimer) {
-    clearInterval(scrollTimer);
-    scrollTimer = null;
-  }
+  clearScrollTimer();
   activeNotes.forEach((noteNumber) => {
     keyboardToggleKey(noteNumber, false);
   });
@@ -291,7 +289,7 @@ const loadRecording = function (e, newRecordingId) {
 
   document.getElementById("recordings").value = currentRecordingId;
 
-  let recordingSlug = recordings_data[currentRecordingId]["slug"];
+  recordingSlug = recordings_data[currentRecordingId]["slug"];
   //currentRecording = midiData[recordingSlug];
 
   initPlayer();
@@ -299,9 +297,6 @@ const loadRecording = function (e, newRecordingId) {
   initScorePlayer();
 
 };
-
-
-/* SAMPLE-BASED PLAYBACK USING midi-player-js AND soundfont-player */
 
 const loadRecordingData = function(data) {
   if (data !== undefined) {
@@ -665,9 +660,8 @@ const playPausePlayback = function () {
   if (samplePlayer.isPlaying()) {
     // Pause
     samplePlayer.pause();
-    clearInterval(scrollTimer);
+    clearScrollTimer();
     playState = "paused";
-    scrollTimer = null;
   } else {
     // Play
     if (showRoll) {
@@ -687,7 +681,7 @@ const playPausePlayback = function () {
     // before starting playback, but maybe it's not necessary...
     panViewportToTick(0);
 
-    scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
+    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
     samplePlayer.play();
   }
 };
@@ -695,19 +689,30 @@ const playPausePlayback = function () {
 const stopPlayback = function () {
   if (samplePlayer.isPlaying() || playState === "paused") {
     samplePlayer.stop();
-    clearInterval(scrollTimer);
-
+    clearScrollTimer();
     activeNotes.forEach((noteNumber) => {
       keyboardToggleKey(noteNumber, false);
     });
     playState = "stopped";
-    scrollTimer = null;
     activeNotes = [];
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
   }
 };
+
+const playerProgress = function () {
+  if (samplePlayer && samplePlayer.isPlaying()) {
+    currentTick = samplePlayer.getCurrentTick();
+    if (showRoll) {
+      panViewportToTick(currentTick);
+      return;
+    }
+  } else if (scorePlayer && scorePlaying) {
+    currentTick = scorePlayer.getCurrentTick();
+  }
+  updateProgress();
+}
 
 const updateProgress = function () {
   if (totalTicks > 0) {
@@ -739,6 +744,7 @@ const skipTo = function (targetTick, targetProgress) {
     activeNotes = [];
     currentProgress = playProgress;
     scorePlayer.play();
+    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
     updateProgress();
     return;
   }
@@ -1043,14 +1049,25 @@ const toggleRoll = function (event) {
   }
 }
 
+const clearScrollTimer = function () {
+  if (scrollTimer) {
+    clearInterval(scrollTimer);
+    scrollTimer = null;
+  }
+}
+
 const toggleScore = function (event) {
   showScore = event.target.checked;
   if (showScore) {
     document.getElementById("scoreWrapper").appendChild(scoreStorage);
+    initScorePlayer();
   } else {
-    //width="500px" height="600px"
-    if (scorePlayer && scorePlaying) {
-      scorePlayer.stop();
+    if (scorePlayer) {
+      if (scorePlaying) {
+        scorePlayer.stop();
+        scorePlaying = false;
+        clearScrollTimer();
+      }
     }
     scoreStorage = document.getElementById("scoreWrapper").children[0];
     scoreStorage.remove();
@@ -1078,11 +1095,12 @@ const scorePlayback = function (e) {
       scorePages[currentScorePage - 1];
     activeNotes = [];
     totalTicks = scorePlayer.totalTicks;
-
+    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
     scorePlayer.play();
   } else if (e.target.name === "stopScore" && scorePlaying) {
     scorePlaying = false;
     scorePlayer.stop();
+    clearScrollTimer();
 
     activeNotes.forEach((noteNumber) => {
       keyboardToggleKey(noteNumber, false);
@@ -1105,7 +1123,7 @@ const scorePlayback = function (e) {
 
     highlightedNotes = [];
 
-    totalTicks = samplePlayer.totalTicks;
+    //totalTicks = samplePlayer.totalTicks;
   }
 };
 
