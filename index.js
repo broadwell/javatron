@@ -116,7 +116,8 @@ let currentProgress = 0.0;
 let volumeRatio = 1.0;
 let leftVolumeRatio = 1.0;
 let rightVolumeRatio = 1.0;
-let baseTempo = null;
+let baseTempo = 60.0;
+let midiTempo = 60.0
 let tempoRatio = 1.0;
 let sliderTempo = 60.0;
 let playbackTempo = 0.0;
@@ -127,12 +128,14 @@ let sustainPedalLocked = false;
 let softPedalLocked = false;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
+let tempoMap = null;
 let playComputedExpressions = true;
 let useRollPedaling = true;
 let accentOn = false;
 let pedalTempoModOn = false;
 let volAccentModDelta = 1;
 let pedalTempoModDelta = 1;
+let useMidiTempos = true;
 
 let showRoll = false;
 let openSeadragon = null;
@@ -345,10 +348,9 @@ const initPlayer = function () {
     firstHolePx = 0;
     let lastHolePx = 0;
     let holeWidthPx = 0;
-    baseTempo = null;
-    let earliestTempoTick = null;
     rollMetadata = {};
     const metadataRegex = /^@(?<key>[^:]*):[\t\s]*(?<value>.*)$/;
+    let tempoChanges = [];
 
     pedalMap = new IntervalTree();
 
@@ -360,6 +362,8 @@ const initPlayer = function () {
       let softOn = false;
       let sustainStart = 0;
       let softStart = 0;
+
+      //console.log("TRACK",t,"EVENTS",track);
 
       track.forEach((event) => {
         if (event.name === "Controller Change") {
@@ -384,10 +388,7 @@ const initPlayer = function () {
             }
           }
         } else if (event.name === "Set Tempo") {
-          if (earliestTempoTick === null || event.tick < earliestTempoTick) {
-            baseTempo = event.data;
-            earliestTempoTick = event.tick;
-          }
+          tempoChanges.push([parseInt(event.tick), parseFloat(event.data)]);
         } else if (event.name === "Text Event") {
           let text = decodeCharRefs(event.string);
           if (!text) return;
@@ -395,6 +396,26 @@ const initPlayer = function () {
           rollMetadata[found.groups.key] = found.groups.value;
         }
       });
+    });
+
+    totalTicks = samplePlayer.totalTicks;
+
+    let sortedTempoChanges = tempoChanges.sort(function(a, b) {
+      return a[0] - b[0];
+    });
+
+    tempoMap = new IntervalTree();
+
+    sortedTempoChanges.forEach((item, i) => {
+      if (i == 0) {
+        baseTempo = item[1];
+      }
+
+      if (i < sortedTempoChanges.length - 1) {
+        tempoMap.insert(item[0], sortedTempoChanges[i+1][0] - 1, item[1]);
+      } else {
+        tempoMap.insert(item[0], totalTicks, item[1])
+      }
     });
 
     console.log(rollMetadata);
@@ -435,7 +456,6 @@ const initPlayer = function () {
     holeWidth = parseFloat(rollMetadata['AVG_HOLE_WIDTH'].replace('px',''));
     holeSep = parseFloat(rollMetadata['HOLE_SEPARATION'].replace('px',''));
 
-    totalTicks = samplePlayer.totalTicks;
     updateProgress();
 
     if (showRoll) {
@@ -646,16 +666,14 @@ const midiEvent = function (event) {
       //panBoundary = event.value;
     }
   } else if (event.name === "Set Tempo") {
-    tempoRatio =
-      1 +
-      (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
-    playbackTempo = parseFloat(sliderTempo) * tempoRatio;
-
-    console.log("SETTING PLAYBACK TEMPO TO", playbackTempo);
-
-    samplePlayer.setTempo(playbackTempo);
-    if (scorePlayer) {
-      scorePlayer.setTempo(playbackTempo);
+    midiTempo = parseFloat(event.data);
+    if (useMidiTempos) {
+      applyTempoChange(midiTempo);
+    } else {
+      // XXX It would be preferable if we could stop the MIDI player
+      // from processing the event at all. One possible approach for
+      // this is to disable track 0 (and re-enable when needed)
+      applyTempoChange(baseTempo);
     }
   }
 
@@ -671,6 +689,39 @@ const midiEvent = function (event) {
   }
 
 };
+
+const applyTempoChange = function(inputTempo) {
+  tempoRatio =
+    1.0 +
+    (inputTempo - baseTempo) / baseTempo;
+  playbackTempo = sliderTempo * tempoRatio;
+
+  //console.log("BASE TEMPO",baseTempo,"INPUT TEMPO",inputTempo,"TEMPO RATIO IS",tempoRatio,"SLIDER TEMPO",sliderTempo,"SETTING PLAYBACK TEMPO TO", playbackTempo);
+
+  if (scorePlayer && scorePlaying) {
+    scorePlayer.pause();
+    scorePlayer.setTempo(playbackTempo);
+    scorePlayer.play();
+  }
+
+  if (samplePlayer.isPlaying()) {
+    samplePlayer.pause();
+    samplePlayer.setTempo(playbackTempo);
+    samplePlayer.play();
+  } else {
+    samplePlayer.setTempo(playbackTempo);
+  }
+
+}
+
+const toggleMidiTempos = function(event) {
+  useMidiTempos = event.target.checked;
+  if (!useMidiTempos) {
+    applyTempoChange(baseTempo);
+  } else {
+    applyTempoChange(midiTempo)
+  }
+}
 
 const playPausePlayback = function () {
   if (scorePlaying) {
@@ -755,6 +806,11 @@ const skipTo = function (targetTick, targetProgress) {
   currentTick = Math.max(0, targetTick);
   let playProgress = Math.max(0, targetProgress);
 
+  if (useMidiTempos) {
+    const currentTempo = tempoMap.search(currentTick, currentTick)[0];
+    applyTempoChange(currentTempo);
+  }
+
   if (scorePlayer && scorePlaying) {
     scorePlayer.pause();
     scorePlayer.skipToTick(currentTick);
@@ -766,6 +822,7 @@ const skipTo = function (targetTick, targetProgress) {
     scorePlayer.play();
     scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
     updateProgress();
+
     return;
   }
 
@@ -1398,6 +1455,10 @@ document
 document
   .getElementById("useRollPedaling")
   .addEventListener("click", toggleRollPedaling, false);
+
+  document
+  .getElementById("useMidiTempos")
+  .addEventListener("click", toggleMidiTempos, false);
 
 document
   .getElementById("accentButton")
