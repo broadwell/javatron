@@ -113,9 +113,6 @@
           <input type="checkbox" id="useMidiTempos" name="useMidiTemposCheckbox" checked>
           <label for="useMidiTempos">Emulate roll acceleration</label>
         </div>
-        <div>
-          NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
-        </div>
       </div>
       <div><strong>Tempo</strong> (w-/e+)<br>0
         <input type="range" min="0" max="180" step="1" class="slider" id="tempoSlider" list="tempoticks">
@@ -164,6 +161,9 @@
       <div >Bass Volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
         <output for="leftVolumeSlider" id="leftVolume"></output>
+      </div>
+      <div>
+        NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
       </div>
       <div >Treble Volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
