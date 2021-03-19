@@ -116,7 +116,8 @@ let currentProgress = 0.0;
 let volumeRatio = 1.0;
 let leftVolumeRatio = 1.0;
 let rightVolumeRatio = 1.0;
-let baseTempo = null;
+let baseTempo = 60.0;
+let midiTempo = 60.0
 let tempoRatio = 1.0;
 let sliderTempo = 60.0;
 let playbackTempo = 0.0;
@@ -127,12 +128,14 @@ let sustainPedalLocked = false;
 let softPedalLocked = false;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
+let tempoMap = null;
 let playComputedExpressions = true;
 let useRollPedaling = true;
 let accentOn = false;
 let pedalTempoModOn = false;
 let volAccentModDelta = 1;
 let pedalTempoModDelta = 1;
+let useMidiTempos = true;
 
 let showRoll = false;
 let openSeadragon = null;
@@ -143,6 +146,11 @@ let overlayPersist = 100; // # ticks = pixels on original roll image
 let holeOverlays = {}; // key = tick, value = div
 let holeWidth = 0;
 let holeSep = 0;
+
+/* Defaults for time-based acceleration emulation */
+let rollPPI = 300.0;
+let timeQuantumInTicks = 12.0 * rollPPI;
+let accelRate = .0022;
 
 let showScore = false;
 let noScore = true;
@@ -345,10 +353,9 @@ const initPlayer = function () {
     firstHolePx = 0;
     let lastHolePx = 0;
     let holeWidthPx = 0;
-    baseTempo = null;
-    let earliestTempoTick = null;
     rollMetadata = {};
     const metadataRegex = /^@(?<key>[^:]*):[\t\s]*(?<value>.*)$/;
+    let tempoChanges = [];
 
     pedalMap = new IntervalTree();
 
@@ -360,6 +367,8 @@ const initPlayer = function () {
       let softOn = false;
       let sustainStart = 0;
       let softStart = 0;
+
+      //console.log("TRACK",t,"EVENTS",track);
 
       track.forEach((event) => {
         if (event.name === "Controller Change") {
@@ -384,10 +393,7 @@ const initPlayer = function () {
             }
           }
         } else if (event.name === "Set Tempo") {
-          if (earliestTempoTick === null || event.tick < earliestTempoTick) {
-            baseTempo = event.data;
-            earliestTempoTick = event.tick;
-          }
+          tempoChanges.push([parseInt(event.tick), parseFloat(event.data)]);
         } else if (event.name === "Text Event") {
           let text = decodeCharRefs(event.string);
           if (!text) return;
@@ -396,6 +402,63 @@ const initPlayer = function () {
         }
       });
     });
+
+    totalTicks = samplePlayer.totalTicks;
+
+    let sortedTempoChanges = tempoChanges.sort(function(a, b) {
+      return a[0] - b[0];
+    });
+
+    tempoMap = new IntervalTree();
+
+    console.log("LENGTH-BASED ACCELERATION MAP (FROM MIDI FILE)");
+
+    sortedTempoChanges.forEach((item, i) => {
+      if (i == 0) {
+        baseTempo = item[1];
+      }
+
+      if (i < sortedTempoChanges.length - 1) {
+        console.log(item[0], sortedTempoChanges[i+1][0] -1, item[1]);
+        tempoMap.insert(item[0], sortedTempoChanges[i+1][0] - 1, item[1]);
+      } else {
+        console.log(item[0], totalTicks, item[1]);
+        tempoMap.insert(item[0], totalTicks, item[1]);
+      }
+    });
+
+    let timeTempoMap = new IntervalTree();
+
+    // Use 'LENGTH_DPI' for the roll PPI? It's hardcoded at 300 but is often
+    // given as 300.25ppi on the roll metadata.
+    if ('ACCEL_INCH' in rollMetadata) {
+      timeQuantumInTicks = parseFloat(rollMetadata['ACCEL_INCH']) * rollPPI;
+    }
+    if ('ACCEL_PERCENT' in rollMetadata) {
+      accelRate = parseFloat(rollMetadata['ACCEL_PERCENT']) / 100.0;
+    }
+    let accelFactor = 1.0;
+    let thisTempo = baseTempo;
+    let thisTime = 0.0;
+
+    console.log("TIME-BASED ACCELERATION MAP");
+
+    while (thisTime < totalTicks) {
+      
+      let nextTime = thisTime + Math.floor(timeQuantumInTicks * accelFactor);
+      thisTempo = parseInt(baseTempo * accelFactor);
+
+      if (nextTime > totalTicks) {
+        nextTime = totalTicks + 1;
+      }
+
+      console.log(thisTime, nextTime-1, thisTempo);
+
+      timeTempoMap.insert(thisTime, nextTime-1, thisTempo);
+
+      thisTime = nextTime;
+      accelFactor += accelRate;
+    }
 
     console.log(rollMetadata);
 
@@ -435,7 +498,6 @@ const initPlayer = function () {
     holeWidth = parseFloat(rollMetadata['AVG_HOLE_WIDTH'].replace('px',''));
     holeSep = parseFloat(rollMetadata['HOLE_SEPARATION'].replace('px',''));
 
-    totalTicks = samplePlayer.totalTicks;
     updateProgress();
 
     if (showRoll) {
@@ -646,17 +708,12 @@ const midiEvent = function (event) {
       //panBoundary = event.value;
     }
   } else if (event.name === "Set Tempo") {
-    tempoRatio =
-      1 +
-      (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
-    playbackTempo = parseFloat(sliderTempo) * tempoRatio;
-
-    console.log("SETTING PLAYBACK TEMPO TO", playbackTempo);
-
-    samplePlayer.setTempo(playbackTempo);
-    if (scorePlayer) {
-      scorePlayer.setTempo(playbackTempo);
-    }
+    midiTempo = parseFloat(event.data);
+    if (useMidiTempos) {
+      applyTempoChange(midiTempo);
+    } /*else {
+      applyTempoChange(baseTempo);
+    }*/
   }
 
   // The scrollTimer should ensure that the roll is synchronized with
@@ -671,6 +728,45 @@ const midiEvent = function (event) {
   }
 
 };
+
+const applyTempoChange = function(inputTempo) {
+  tempoRatio =
+    1.0 +
+    (inputTempo - baseTempo) / baseTempo;
+  playbackTempo = sliderTempo * tempoRatio;
+
+  //console.log("BASE TEMPO",baseTempo,"INPUT TEMPO",inputTempo,"TEMPO RATIO IS",tempoRatio,"SLIDER TEMPO",sliderTempo,"SETTING PLAYBACK TEMPO TO", playbackTempo);
+
+  if (scorePlayer && scorePlaying) {
+    scorePlayer.pause();
+    scorePlayer.setTempo(playbackTempo);
+    scorePlayer.play();
+  }
+
+  if (samplePlayer.isPlaying()) {
+    samplePlayer.pause();
+    samplePlayer.setTempo(playbackTempo);
+    samplePlayer.play();
+  } else {
+    samplePlayer.setTempo(playbackTempo);
+  }
+
+}
+
+const toggleMidiTempos = function(event) {
+  useMidiTempos = event.target.checked;
+  if (!useMidiTempos) {
+    // XXX This only works as long as the only the
+    // tempo changes are always on track 1
+    samplePlayer.disableTrack(1);
+    applyTempoChange(baseTempo);
+  } else {
+    samplePlayer.enableTrack(1);
+    const thisTick = samplePlayer.getCurrentTick();
+    midiTempo = tempoMap.search(thisTick, thisTick)[0];
+    applyTempoChange(midiTempo);
+  }
+}
 
 const playPausePlayback = function () {
   if (scorePlaying) {
@@ -755,6 +851,11 @@ const skipTo = function (targetTick, targetProgress) {
   currentTick = Math.max(0, targetTick);
   let playProgress = Math.max(0, targetProgress);
 
+  if (useMidiTempos) {
+    const currentTempo = tempoMap.search(currentTick, currentTick)[0];
+    applyTempoChange(currentTempo);
+  }
+
   if (scorePlayer && scorePlaying) {
     scorePlayer.pause();
     scorePlayer.skipToTick(currentTick);
@@ -766,6 +867,7 @@ const skipTo = function (targetTick, targetProgress) {
     scorePlayer.play();
     scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
     updateProgress();
+
     return;
   }
 
@@ -920,9 +1022,12 @@ const keyboardToggleKey = function (noteNumber, onIfTrue) {
 };
 
 // This is for playing notes manually pressed (clicked) on the keyboard
-const midiNotePlayer = function (noteNumber, onIfTrue) {
+const midiNotePlayer = function (noteNumber, onIfTrue, velocity) {
+  if (!velocity) {
+    velocity = DEFAULT_NOTE_VELOCITY;
+  }
   if (onIfTrue) {
-    let updatedVolume = (DEFAULT_NOTE_VELOCITY / 128.0) * volumeRatio;
+    let updatedVolume = (velocity / 128.0) * volumeRatio;
     if (softPedalOn) {
       if (pedalTempoModOn) {
         updatedVolume *= SOFT_PEDAL_RATIO + ((1 - SOFT_PEDAL_RATIO) * PEDAL_TEMPO_MOD_DELTA);
@@ -1400,6 +1505,10 @@ document
   .addEventListener("click", toggleRollPedaling, false);
 
 document
+  .getElementById("useMidiTempos")
+  .addEventListener("click", toggleMidiTempos, false);
+
+document
   .getElementById("accentButton")
   .addEventListener("mousedown", toggleAccent, false);
 
@@ -1519,8 +1628,13 @@ if (navigator.requestMIDIAccess) {
               } else {
                 releaseSustainPedal();
               }
+            } else if (msg.data[0] == 144) {
+              if (msg.data[2] == 0) {
+                midiNotePlayer(msg.data[1], false);
+              } else {
+                midiNotePlayer(msg.data[1], true, msg.data[2]);
+              }            
             }
-            //console.log(msg);
           }
         }
       })
