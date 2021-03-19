@@ -114,11 +114,39 @@ h3 {
 .music-hole-dot {
 	background-color: rgb(224, 8, 232);
 	border-radius: 50%;
+	-webkit-animation: music-hole-glow linear 1s; 
+    animation: music-hole-glow linear 1s;
+} 
+
+@-webkit-keyframes music-hole-glow { 
+    0% { background-color:rgb(224, 8, 232) }
+    50% { background-color:yellow }
+    100% { background-color:rgb(224, 8, 232) } 
+
+} 
+@keyframes music-hole-glow { 
+    0% { background-color:rgb(224, 8, 232) }
+    50% { background-color:yellow }
+    100% { background-color:rgb(224, 8, 232) } 
 }
 
 .control-hole-dot {
 	background-color: #2edf12;
 	border-radius: 50%;
+	-webkit-animation: control-hole-glow linear 1s infinite; 
+    animation: control-hole-glow linear 1s infinite;
+}
+
+@-webkit-keyframes control-hole-glow { 
+    0% { background-color:#2edf12 }
+    50% { background-color:orange; }
+    100% { background-color:#2edf12 } 
+
+} 
+@keyframes control-hole-glow { 
+    0% { background-color:#2edf12 }
+    50% { background-color:orange; }
+    100% { background-color:#2edf12 } 
 }
 
 .score {
