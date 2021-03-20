@@ -158,14 +158,30 @@
       </div>
     </div>
     <div class="flex-container main-row" display="flex">
-      <div >Bass Volume:
+      <div>Bass volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
         <output for="leftVolumeSlider" id="leftVolume"></output>
       </div>
-      <div>
+      <!-- <div>
         NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
+      </div> -->
+      <div><strong>Sustain pedal</strong> (b-/n+)<br>0
+        <input type="range" min="0" max="127" step="1" class="slider" name="sustainLevel" id="sustainLevelSlider" list="pedalticks">
+          <datalist id="pedalticks">
+            <option value="0" label="0"></option>
+            <option value="15"></option>
+            <option value="31"></option>
+            <option value="47"></option>
+            <option value="63" label="63"></option>
+            <option value="79"></option>
+            <option value="95"></option>
+            <option value="111"></option>
+            <option value="127" label="127"></option>
+          </datalist>
+        </input>127<br>
+        Value: <output for="sustainLevelSlider" id="sustainLevel"></output>
       </div>
-      <div >Treble Volume:
+      <div>Treble volume:
         <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
         <output for="rightVolumeSlider" id="rightVolume"></output>
       </div>
