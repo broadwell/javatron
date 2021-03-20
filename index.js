@@ -968,8 +968,8 @@ const panViewportToTick = function (tick) {
 
 const pressSustainPedal = function (pedalInput) {
   if (pedalInput !== undefined) {
-    if (!pedalInput instanceof KeyboardEvent) {
-      sustainLevel = pedalIput;
+    if (!(pedalInput instanceof KeyboardEvent)) {
+      sustainLevel = pedalInput;
     } else {
       if (pedalInput.type == "keydown") {
         if (pedalInput.code == SUSTAIN_LESS_KEY) {
