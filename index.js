@@ -55,6 +55,9 @@ const VOLUME_DOWN_KEY = "BracketLeft";
 const VOLUME_UP_KEY = "BracketRight";
 const ACCENT_KEY = "Comma";
 const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
+const SUSTAIN_LESS_KEY = "KeyB";
+const SUSTAIN_MORE_KEY = "KeyN";
+const SUSTAIN_LEVEL_DELTA = 5;
 //const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
@@ -126,6 +129,7 @@ let sustainPedalOn = false;
 let softPedalOn = false;
 let sustainPedalLocked = false;
 let softPedalLocked = false;
+let sustainLevel = 127;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
 let tempoMap = null;
@@ -962,12 +966,45 @@ const panViewportToTick = function (tick) {
 
 };
 
-const pressSustainPedal = function () {
-  if (sustainPedalOn) {
-    releaseSustainPedal();
+const pressSustainPedal = function (pedalInput) {
+  if (pedalInput !== undefined) {
+    if (!pedalInput instanceof KeyboardEvent) {
+      sustainLevel = pedalIput;
+    } else {
+      if (pedalInput.type == "keydown") {
+        if (pedalInput.code == SUSTAIN_LESS_KEY) {
+          if (pedalInput.shiftKey) {
+            sustainLevel = Math.max(0, sustainLevel - 1);
+          } else {
+            sustainLevel = Math.max(0, sustainLevel - SUSTAIN_LEVEL_DELTA);
+          }
+        } else if (pedalInput.code == SUSTAIN_MORE_KEY) {
+          if (pedalInput.shiftKey) {
+            sustainLevel = Math.min(127, sustainLevel + 1);
+          } else {
+            sustainLevel = Math.min(127, sustainLevel + SUSTAIN_LEVEL_DELTA);
+          }
+        }
+      }
+    }
+
+    if (sustainLevel == 0) {
+      releaseSustainPedal();
+      return;
+    } else {
+      document.getElementById("sustainLevel").value = sustainLevel;
+      document.getElementById("sustainLevelSlider").value = sustainLevel;
+    }
   }
+  
+  // XXX how to accommodate changes in pedaling levels between on and off?
+  //if (sustainPedalOn) {
+  //  releaseSustainPedal();
+  //}
   //console.log("SUSTAIN ON");
-  piano.pedalDown();
+  if (!sustainPedalOn) {
+    piano.pedalDown();
+  }
   sustainPedalOn = true;
   document.getElementById("sustainPedal").classList.add("pressed");
 };
@@ -1052,9 +1089,9 @@ const updateTempoSlider = function (event) {
     sliderTempo = event.target.value;  
   } else if (event.type == "keydown") {
     if (event.code == TEMPO_FASTER_KEY) {
-      sliderTempo += (TEMPO_KEY_DELTA * pedalTempoModDelta);
+      sliderTempo = Math.min(180, sliderTempo + (TEMPO_KEY_DELTA * pedalTempoModDelta));
     } else if (event.code == TEMPO_SLOWER_KEY) {
-      sliderTempo -= (TEMPO_KEY_DELTA * pedalTempoModDelta);
+      sliderTempo = Math.max(0, sliderTempo - (TEMPO_KEY_DELTA * pedalTempoModDelta));
     }
     document.getElementById("tempoSlider").value = sliderTempo;
   } else {
@@ -1092,9 +1129,9 @@ const updateVolumeSlider = function (event) {
   // At present, only the main volume is key-mapped
   if (event.type == "keydown") {
     if (event.code == VOLUME_UP_KEY) {
-      volumeRatio += (VOLUME_KEY_DELTA * volAccentModDelta);
+      volumeRatio = Math.min(4, volumeRatio + (VOLUME_KEY_DELTA * volAccentModDelta));
     } else if (event.code == VOLUME_DOWN_KEY) {
-      volumeRatio -= (VOLUME_KEY_DELTA * volAccentModDelta);
+      volumeRatio = Math.max(0, volumeRatio - (VOLUME_KEY_DELTA * volAccentModDelta));
     }
     volumeRatio = Math.round(10*volumeRatio)/10; 
     document.getElementById("masterVolume").value = volumeRatio;
@@ -1114,6 +1151,11 @@ const updateVolumeSlider = function (event) {
     }
   }
 };
+
+const updateSustainLevel = function (event) {
+  sustainLevel = event.target.value;
+  document.getElementById("sustainLevel").value = sustainLevel;
+}
 
 // XXX Ugh manual styling -- just for prototyping
 const toggleAccent = function (event) {
@@ -1140,6 +1182,7 @@ const toggleAccent = function (event) {
     case "keyup":
       accentOn = false;
       document.getElementById("accentButton").style.backgroundColor = "white";
+      break;
   }
 }
 
@@ -1453,6 +1496,9 @@ document.getElementById("leftVolume").value = leftVolumeRatio;
 document.getElementById("rightVolumeSlider").value = rightVolumeRatio;
 document.getElementById("rightVolume").value = rightVolumeRatio;
 
+document.getElementById("sustainLevelSlider").value = sustainLevel;
+document.getElementById("sustainLevel").value = sustainLevel;
+
 verovio.module.onRuntimeInitialized = function () {
   ///create the toolkit instance
   vrvToolkit = new verovio.toolkit();
@@ -1463,6 +1509,8 @@ verovio.module.onRuntimeInitialized = function () {
 document.getElementById("masterVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("leftVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("rightVolumeSlider").onchange = updateVolumeSlider;
+
+document.getElementById("sustainLevelSlider").onchange = updateSustainLevel;
 
 document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 
@@ -1595,6 +1643,12 @@ const keyboardKeyControl = function(event) {
     case ACCENT_KEY:
       toggleAccent(event);
       break;
+    case SUSTAIN_MORE_KEY:
+      pressSustainPedal(event);
+      break;
+    case SUSTAIN_LESS_KEY:
+      pressSustainPedal(event);
+      break;
   }
 }
 
@@ -1623,11 +1677,7 @@ if (navigator.requestMIDIAccess) {
             // SUSTAIN PEDAL MSGS ARE 176, 64, 0-127
             // KEYPRESS MSGS ARE 144, [MIDI_NUMBER], 0-100?
             if ((msg.data[0] == 176) && (msg.data[1] == 64)) {
-              if (msg.data[2] > 0) {
-                pressSustainPedal();
-              } else {
-                releaseSustainPedal();
-              }
+              pressSustainPedal(parseInt(msg.data[2]));
             } else if (msg.data[0] == 144) {
               if (msg.data[2] == 0) {
                 midiNotePlayer(msg.data[1], false);
