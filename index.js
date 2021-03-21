@@ -1003,7 +1003,7 @@ const pressSustainPedal = function (pedalInput) {
   //}
   //console.log("SUSTAIN ON");
   if (!sustainPedalOn) {
-    piano.pedalDown();
+    piano.pedalDown(parseFloat(sustainLevel) / 127.0);
   }
   sustainPedalOn = true;
   document.getElementById("sustainPedal").classList.add("pressed");
