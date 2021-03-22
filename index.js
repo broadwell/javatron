@@ -969,7 +969,7 @@ const panViewportToTick = function (tick) {
 const pressSustainPedal = function (pedalInput) {
   if (pedalInput !== undefined) {
     if (!(pedalInput instanceof KeyboardEvent)) {
-      sustainLevel = pedalInput;
+      sustainLevel = parseInt(pedalInput);
     } else {
       if (pedalInput.type == "keydown") {
         if (pedalInput.code == SUSTAIN_LESS_KEY) {
@@ -1003,8 +1003,11 @@ const pressSustainPedal = function (pedalInput) {
   //}
   //console.log("SUSTAIN ON");
   if (!sustainPedalOn) {
-    piano.pedalDown();
-    //piano.pedalDown(parseFloat(sustainLevel) / 127.0);
+    //piano.pedalDown();
+    const sustainRatio = parseFloat(parseFloat(sustainLevel) / 127.0);
+    console.log("SUSTAIN PEDAL GOING DOWN, LEVEL IS",sustainLevel,"RATIO",sustainRatio);
+    //piano.pedalDown(sustainRatio);
+    piano.pedalDown({ level: sustainRatio });
   }
   sustainPedalOn = true;
   document.getElementById("sustainPedal").classList.add("pressed");
