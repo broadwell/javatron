@@ -5,6 +5,9 @@ import verovio from "verovio";
 import { v4 as uuidv4 } from "uuid";
 import Keyboard from "piano-keyboard";
 import { Piano } from "@tonejs/piano";
+import Bunzip from "seek-bzip";
+import { Buffer } from "buffer";
+import ATON from "aton";
 
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = [
@@ -555,7 +558,26 @@ const initPlayer = function () {
     .then(data => {
       loadRecordingData(data);
     });
-};
+  
+  fetch(BASE_DATA_URL + 'analyses/' + currentRecordingId + '_analysis.txt.bz2')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Network error');
+      }
+      return response.arrayBuffer();
+    })
+    .then(data => {
+      processHoleAnalysis(data);
+    })
+
+}
+
+const processHoleAnalysis = function(data) {
+  const output = Bunzip.decode(Buffer.from(data));
+  const atonReader = new ATON();
+  const analysis = atonReader.parse(output.toString());
+  const holesData = analysis.ROLLINFO.HOLES.HOLE;
+}
 
 const clearOverlays = function(newTick, allIfTrue) {
 
