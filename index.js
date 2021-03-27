@@ -153,6 +153,9 @@ let overlayPersist = 100; // # ticks = pixels on original roll image
 let holeOverlays = {}; // key = tick, value = div
 let holeWidth = 0;
 let holeSep = 0;
+let holesInfo = {};
+let paintHoles = false; // Whether to draw in entire hole lane on roll
+let paintedHoles = {}; // Holes currently drawn as overlays
 
 /* Defaults for time-based acceleration emulation */
 let rollPPI = 300.0;
@@ -168,7 +171,7 @@ let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentRecordingId = Object.keys(recordings_data)[1];
+let currentRecordingId = Object.keys(recordings_data)[0];
 let vrvToolkit = null;
 
 let scrollUp = false;
@@ -360,6 +363,7 @@ const initPlayer = function () {
     firstHolePx = 0;
     let lastHolePx = 0;
     let holeWidthPx = 0;
+    holesInfo = {};
     rollMetadata = {};
     const metadataRegex = /^@(?<key>[^:]*):[\t\s]*(?<value>.*)$/;
     let tempoChanges = [];
@@ -418,7 +422,7 @@ const initPlayer = function () {
 
     tempoMap = new IntervalTree();
 
-    console.log("LENGTH-BASED ACCELERATION MAP (FROM MIDI FILE)");
+    //console.log("LENGTH-BASED ACCELERATION MAP (FROM MIDI FILE)");
 
     sortedTempoChanges.forEach((item, i) => {
       if (i == 0) {
@@ -426,10 +430,10 @@ const initPlayer = function () {
       }
 
       if (i < sortedTempoChanges.length - 1) {
-        console.log(item[0], sortedTempoChanges[i+1][0] -1, item[1]);
+        //console.log(item[0], sortedTempoChanges[i+1][0] -1, item[1]);
         tempoMap.insert(item[0], sortedTempoChanges[i+1][0] - 1, item[1]);
       } else {
-        console.log(item[0], totalTicks, item[1]);
+        //console.log(item[0], totalTicks, item[1]);
         tempoMap.insert(item[0], totalTicks, item[1]);
       }
     });
@@ -448,7 +452,7 @@ const initPlayer = function () {
     let thisTempo = baseTempo;
     let thisTime = 0.0;
 
-    console.log("TIME-BASED ACCELERATION MAP");
+    //console.log("TIME-BASED ACCELERATION MAP");
 
     while (thisTime < totalTicks) {
       
@@ -459,7 +463,7 @@ const initPlayer = function () {
         nextTime = totalTicks + 1;
       }
 
-      console.log(thisTime, nextTime-1, thisTempo);
+      //console.log(thisTime, nextTime-1, thisTempo);
 
       timeTempoMap.insert(thisTime, nextTime-1, thisTempo);
 
@@ -500,7 +504,7 @@ const initPlayer = function () {
     lastHolePx = parseInt(rollMetadata["LAST_HOLE"]);
     holeWidthPx = parseInt(rollMetadata["AVG_HOLE_WIDTH"]);
 
-    let rollWidth = parseInt(rollMetadata["ROLL_WIDTH"]);
+    //let rollWidth = parseInt(rollMetadata["ROLL_WIDTH"]);
 
     holeWidth = parseFloat(rollMetadata['AVG_HOLE_WIDTH'].replace('px',''));
     holeSep = parseFloat(rollMetadata['HOLE_SEPARATION'].replace('px',''));
@@ -566,8 +570,14 @@ const initPlayer = function () {
       }
       return response.arrayBuffer();
     })
+    .catch(error => {
+      paintHoles = false;
+      return null;
+    })
     .then(data => {
-      processHoleAnalysis(data);
+      if (data) {
+        processHoleAnalysis(data);
+      }
     })
 
 }
@@ -577,6 +587,30 @@ const processHoleAnalysis = function(data) {
   const atonReader = new ATON();
   const analysis = atonReader.parse(output.toString());
   const holesData = analysis.ROLLINFO.HOLES.HOLE;
+  paintHoles = true;
+
+  holesData.forEach(hole => {
+
+    if (hole['NOTE_ATTACK'] === undefined) {
+      // This happens rarely; not sure why
+      return;
+    }
+    // XXX This could potentially be made more efficient if
+    // MIDI_KEY values other than -1 were actually provided
+    // in the hole processing output (it would help to differentiate
+    // control holes from keypress holes). But maybe this isn't that
+    // important; if each control and keypress event has a slightly
+    // different tick value, then it should be sufficient to use the
+    // tick values alone to determine which MIDI event belongs to
+    // each hole.
+    const attack = parseInt(hole['NOTE_ATTACK'].replace('px', ''));
+    if (holesInfo[attack] === undefined) {
+      holesInfo[attack] = [hole];
+    } else {
+      holesInfo[attack].push(hole);
+    }
+  });
+
 }
 
 const clearOverlays = function(newTick, allIfTrue) {
@@ -586,13 +620,23 @@ const clearOverlays = function(newTick, allIfTrue) {
   }
 
   Object.keys(holeOverlays).forEach(tick => {
-    if (allIfTrue || (Math.abs(newTick - tick) > overlayPersist)) {
+    if (allIfTrue || (!paintHoles && (Math.abs(newTick - parseInt(tick)) > overlayPersist)) || (paintHoles && (newTick > parseInt(tick)))) {
       holeOverlays[tick].forEach(item => {
         openSeadragon.viewport.viewer.removeOverlay(item);
       });
       delete holeOverlays[tick];
     }
   });
+  // We also keep track of the hole IDs of the currently drawn
+  // holes, so we don't draw them twice when their start pixel
+  // values coincide
+  if (paintHoles) {
+    Object.keys(paintedHoles).forEach(holeId => {
+      if (paintedHoles[holeId] <= newTick) {
+        delete paintedHoles[holeId];
+      }
+    });
+  }
 }
 
 const midiEvent = function (event) {
@@ -626,58 +670,119 @@ const midiEvent = function (event) {
         activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
       }
       stopNote(noteNumber);
-      //console.log("OFF",getNoteName(noteNumber));
-      //}
-      // Note on
+
+    // Note on
     } else {
 
       if (showRoll) {
-        // The use of holeSep seems to be correct, but the X offset is a total guess
-        let noteOffset = 0;
-
-        if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
-          noteOffset = noteNumber - 4;
-        } else {
-          noteOffset = noteNumber - 10;
-        }
-
-        let dotX = noteOffset * holeSep;
-        
-        if (event.track <= 3) {
-          dotX += parseInt(parseFloat(holeWidth) / 2.0);
-        }
+        //console.log("LOOKING FOR HOLE EVENTS AT",firstHolePx,"+",event.tick,"PIXEL",linePx);
 
         let scaleFactor = openSeadragon.viewport.viewportToImageZoom(openSeadragon.viewport.getZoom());
 
-        let dotRadius = holeWidth * scaleFactor;
-
-        let noteDot = document.createElement("div");
-        if (event.track <= 3) {
-          noteDot.classList.add('music-hole-dot');
-        } else {
-          noteDot.classList.add('control-hole-dot')
-        }
-        noteDot.style.height = dotRadius.toString() + 'px';
-        noteDot.style.width = dotRadius.toString() + 'px';
-
-        let dotY = linePx;
-        if (event.track <= 3) {
-          if (!scrollUp) {
-            dotY += holeWidth;
-          }
-        }
-
-        let dotViewport = openSeadragon.viewport.imageToViewportCoordinates(
-          dotX,
-          dotY // Place dot a bit lower so it's inside the hole
-        );
+        if (holesInfo[linePx] !== undefined) {
         
-        openSeadragon.viewport.viewer.addOverlay(noteDot, dotViewport, OpenSeadragon.Placement.CENTER);
+          // AREA: "1171px"
+          // CENTROID_COL: "482.535px"
+          // CENTROID_ROW: "13454.9px"
+          // CIRCULARITY: "0.72"
+          // HPIXCOR: "3.6px"
+          // ID: "K0_N1"
+          // MAJOR_AXIS: "0deg"
+          // MIDI_KEY: "-1"
+          // NOTE_ATTACK: "13426px"
+          // OFF_TIME: "13483px"
+          // ORIGIN_COL: "472px"
+          // ORIGIN_ROW: "13426px"
+          // PERIMETER: "142.512px"
+          // TRACKER_HOLE: "13"
+          // WIDTH_COL: "22px"
+          // WIDTH_ROW: "57px"
 
-        if (holeOverlays[event.tick] === undefined) {
-          holeOverlays[event.tick] = [noteDot];
+          holesInfo[linePx].forEach(hole => {
+
+            const holeId = hole['ID'];
+
+            if (holeId in paintedHoles) {
+              return;
+            }
+
+            const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
+            const pointX = parseInt(hole['ORIGIN_COL'].replace('px', '')) + colWidth/2.0;
+            const pointY = parseInt(hole['ORIGIN_ROW'].replace('px', ''));
+
+            //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
+            const offPx = parseInt(hole['OFF_TIME'].replace('px', ''));
+            const offTime = offPx - firstHolePx;
+            const noteLength = offPx - pointY;
+
+            let noteRect = document.createElement("div");
+            if (event.track <= 3) {
+              noteRect.classList.add('music-hole');
+            } else {
+              noteRect.classList.add('control-hole')
+            }
+
+            let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, colWidth, noteLength);
+
+            openSeadragon.viewport.viewer.addOverlay(noteRect, rectViewport);
+
+            if (holeOverlays[offTime] === undefined) {
+              holeOverlays[offTime] = [noteRect];
+            } else {
+              holeOverlays[offTime].push(noteRect);
+            }
+
+            paintedHoles[holeId] = offTime;
+
+          });
+        
         } else {
-          holeOverlays[event.tick].push(noteDot);
+
+          // The use of holeSep seems to be correct, but the X offset is a total guess
+          let noteOffset = 0;
+
+          if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
+            noteOffset = noteNumber - 4;
+          } else {
+            noteOffset = noteNumber - 10;
+          }
+
+          let dotX = noteOffset * holeSep;
+          
+          if (event.track <= 3) {
+            dotX += parseInt(parseFloat(holeWidth) / 2.0);
+          }
+
+          let dotRadius = holeWidth * scaleFactor;
+
+          let noteDot = document.createElement("div");
+          if (event.track <= 3) {
+            noteDot.classList.add('music-hole');
+          } else {
+            noteDot.classList.add('control-hole')
+          }
+          noteDot.style.height = dotRadius.toString() + 'px';
+          noteDot.style.width = dotRadius.toString() + 'px';
+
+          let dotY = linePx;
+          if (event.track <= 3) {
+            if (!scrollUp) {
+              dotY += holeWidth;
+            }
+          }
+
+          let dotViewport = openSeadragon.viewport.imageToViewportCoordinates(
+            dotX,
+            dotY // Place dot a bit lower so it's inside the hole
+          );
+          
+          openSeadragon.viewport.viewer.addOverlay(noteDot, dotViewport, OpenSeadragon.Placement.CENTER);
+
+          if (holeOverlays[event.tick] === undefined) {
+            holeOverlays[event.tick] = [noteDot];
+          } else {
+            holeOverlays[event.tick].push(noteDot);
+          }
         }
       }
 
