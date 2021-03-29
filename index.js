@@ -136,6 +136,7 @@ let sustainLevel = 127;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
 let tempoMap = null;
+let notesMap = null;
 let playComputedExpressions = true;
 let useRollPedaling = true;
 let accentOn = false;
@@ -310,6 +311,9 @@ const loadRecording = function (e, newRecordingId) {
   if (samplePlayer && (samplePlayer.isPlaying() || playState === "paused")) {
     samplePlayer.stop();
     playState = "stopped";
+    if (showRoll) {
+      clearOverlays(samplePlayer.getCurrentTick(), true);
+    }
   }
   clearScrollTimer();
   activeNotes.forEach((noteNumber) => {
@@ -361,14 +365,13 @@ const initPlayer = function () {
     }
 
     firstHolePx = 0;
-    let lastHolePx = 0;
-    let holeWidthPx = 0;
     holesInfo = {};
     rollMetadata = {};
     const metadataRegex = /^@(?<key>[^:]*):[\t\s]*(?<value>.*)$/;
     let tempoChanges = [];
 
     pedalMap = new IntervalTree();
+    notesMap = {"open": {}}
 
     // Pedal events should be duplicated on each track, but best not to assume
     // this will always be the case. Assume however that the events are
@@ -410,6 +413,25 @@ const initPlayer = function () {
           if (!text) return;
           const found = text.match(metadataRegex);
           rollMetadata[found.groups.key] = found.groups.value;
+        } else if (event.name === "Note on") {
+          if (event.track > 3) {
+            // XXX May eventually process control events here too
+            return;
+          }
+          const noteNumber = event.noteNumber;
+          if ((event.velocity == 0) && (notesMap["open"][noteNumber] !== undefined)) {
+            const startTick = notesMap["open"][noteNumber];
+            if (notesMap[startTick] === undefined) {
+              notesMap[startTick] = {};
+              notesMap[startTick][noteNumber] = event.tick;
+            } else {
+              notesMap[startTick][noteNumber] = event.tick;
+            }
+            delete notesMap["open"][noteNumber];
+          }
+          if ((event.velocity > 0) && (notesMap["open"][noteNumber] === undefined)) {
+            notesMap["open"][noteNumber] = event.tick;
+          }
         }
       });
     });
@@ -430,18 +452,16 @@ const initPlayer = function () {
       }
 
       if (i < sortedTempoChanges.length - 1) {
-        //console.log(item[0], sortedTempoChanges[i+1][0] -1, item[1]);
         tempoMap.insert(item[0], sortedTempoChanges[i+1][0] - 1, item[1]);
       } else {
-        //console.log(item[0], totalTicks, item[1]);
         tempoMap.insert(item[0], totalTicks, item[1]);
       }
     });
 
     let timeTempoMap = new IntervalTree();
 
-    // Use 'LENGTH_DPI' for the roll PPI? It's hardcoded at 300 but is often
-    // given as 300.25ppi on the roll metadata.
+    // Use 'LENGTH_DPI' for the roll PPI? It's often given as 300.25ppi on the
+    // roll metadata, but for now rollPPI is hardcoded at 300.
     if ('ACCEL_INCH' in rollMetadata) {
       timeQuantumInTicks = parseFloat(rollMetadata['ACCEL_INCH']) * rollPPI;
     }
@@ -452,8 +472,6 @@ const initPlayer = function () {
     let thisTempo = baseTempo;
     let thisTime = 0.0;
 
-    //console.log("TIME-BASED ACCELERATION MAP");
-
     while (thisTime < totalTicks) {
       
       let nextTime = thisTime + Math.floor(timeQuantumInTicks * accelFactor);
@@ -462,8 +480,6 @@ const initPlayer = function () {
       if (nextTime > totalTicks) {
         nextTime = totalTicks + 1;
       }
-
-      //console.log(thisTime, nextTime-1, thisTempo);
 
       timeTempoMap.insert(thisTime, nextTime-1, thisTempo);
 
@@ -499,14 +515,11 @@ const initPlayer = function () {
       firstHolePx = parseInt(rollMetadata["IMAGE_LENGTH"]) - firstHolePx;
     }
 
-    //console.log("FIRST HOLE",firstHolePx);
-
-    lastHolePx = parseInt(rollMetadata["LAST_HOLE"]);
-    holeWidthPx = parseInt(rollMetadata["AVG_HOLE_WIDTH"]);
-
+    //let lastHolePx = parseInt(rollMetadata["LAST_HOLE"]);
     //let rollWidth = parseInt(rollMetadata["ROLL_WIDTH"]);
 
     holeWidth = parseFloat(rollMetadata['AVG_HOLE_WIDTH'].replace('px',''));
+
     holeSep = parseFloat(rollMetadata['HOLE_SEPARATION'].replace('px',''));
 
     updateProgress();
@@ -620,7 +633,7 @@ const clearOverlays = function(newTick, allIfTrue) {
   }
 
   Object.keys(holeOverlays).forEach(tick => {
-    if (allIfTrue || (!paintHoles && (Math.abs(newTick - parseInt(tick)) > overlayPersist)) || (paintHoles && (newTick > parseInt(tick)))) {
+    if (allIfTrue || (newTick > parseInt(tick))) {
       holeOverlays[tick].forEach(item => {
         openSeadragon.viewport.viewer.removeOverlay(item);
       });
@@ -664,6 +677,7 @@ const midiEvent = function (event) {
     const noteNumber = event.noteNumber;
 
     // Note off
+    // This ignores velcity 0 events on the higher control tracks -- not good?
     if ((event.velocity === 0) && (event.track <= 3)) {
 
       while (activeNotes.includes(parseInt(noteNumber))) {
@@ -671,14 +685,17 @@ const midiEvent = function (event) {
       }
       stopNote(noteNumber);
 
-    // Note on
+    } else if (event.track > 3) {
+      //console.log("NOTE ON AT TICK",event.tick,noteNumber,"TRACK",event.track,"LIKELY CONTROL");
+
+    } else if ((noteNumber < 21) || (noteNumber > 108)) {
+      //console.log("NOTE ON AT TICK",event.tick,noteNumber,"TRACK",event.track,"POSSIBLY CONTROL");
+
     } else {
+      //console.log("NOTE ON AT TICK",event.tick,noteNumber,"TRACK",event.track,"VELOCITY",event.velocity);
 
+      /* Visualize note on roll */
       if (showRoll) {
-        //console.log("LOOKING FOR HOLE EVENTS AT",firstHolePx,"+",event.tick,"PIXEL",linePx);
-
-        let scaleFactor = openSeadragon.viewport.viewportToImageZoom(openSeadragon.viewport.getZoom());
-
         if (holesInfo[linePx] !== undefined) {
         
           // AREA: "1171px"
@@ -698,6 +715,7 @@ const midiEvent = function (event) {
           // WIDTH_COL: "22px"
           // WIDTH_ROW: "57px"
 
+          /* Use hole analysis report data, if available */
           holesInfo[linePx].forEach(hole => {
 
             const holeId = hole['ID'];
@@ -707,7 +725,7 @@ const midiEvent = function (event) {
             }
 
             const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
-            const pointX = parseInt(hole['ORIGIN_COL'].replace('px', '')) + colWidth/2.0;
+            const pointX = parseInt(hole['ORIGIN_COL'].replace('px', ''));
             const pointY = parseInt(hole['ORIGIN_ROW'].replace('px', ''));
 
             //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
@@ -715,21 +733,20 @@ const midiEvent = function (event) {
             const offTime = offPx - firstHolePx;
             const noteLength = offPx - pointY;
 
-            let noteRect = document.createElement("div");
+            let noteElt = document.createElement("div");
             if (event.track <= 3) {
-              noteRect.classList.add('music-hole');
+              noteElt.classList.add('music-hole');
             } else {
-              noteRect.classList.add('control-hole')
+              noteElt.classList.add('control-hole')
             }
 
             let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, colWidth, noteLength);
-
-            openSeadragon.viewport.viewer.addOverlay(noteRect, rectViewport);
+            openSeadragon.viewport.viewer.addOverlay(noteElt, rectViewport);
 
             if (holeOverlays[offTime] === undefined) {
-              holeOverlays[offTime] = [noteRect];
+              holeOverlays[offTime] = [noteElt];
             } else {
-              holeOverlays[offTime].push(noteRect);
+              holeOverlays[offTime].push(noteElt);
             }
 
             paintedHoles[holeId] = offTime;
@@ -738,50 +755,51 @@ const midiEvent = function (event) {
         
         } else {
 
+          /* No hole analysis data available; build overlays from notesMap and guesswork. */
+
           // The use of holeSep seems to be correct, but the X offset is a total guess
           let noteOffset = 0;
 
+          let noteNudge = 0;
+
           if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
-            noteOffset = noteNumber - 4;
+            noteOffset = noteNumber - 5;
+            noteNudge = holeSep / 2.0;
           } else {
-            noteOffset = noteNumber - 10;
+            noteOffset = noteNumber - 11;
+            noteNudge = holeSep;
           }
 
-          let dotX = noteOffset * holeSep;
-          
-          if (event.track <= 3) {
-            dotX += parseInt(parseFloat(holeWidth) / 2.0);
+          let pointX = noteOffset * holeSep + noteNudge;
+
+          let offTime = event.tick + overlayPersist;
+
+          if ((notesMap[event.tick] !== undefined ) && (notesMap[event.tick][noteNumber] !== undefined)) {
+            offTime = notesMap[event.tick][noteNumber];
           }
 
-          let dotRadius = holeWidth * scaleFactor;
+          const noteLength = Math.abs(event.tick - offTime);
 
-          let noteDot = document.createElement("div");
+          let pointY = linePx;
+          if (scrollUp) {
+            pointY = linePx - noteLength;
+          }
+
+          let noteRect = document.createElement("div");
           if (event.track <= 3) {
-            noteDot.classList.add('music-hole');
+            noteRect.classList.add('music-hole');
           } else {
-            noteDot.classList.add('control-hole')
-          }
-          noteDot.style.height = dotRadius.toString() + 'px';
-          noteDot.style.width = dotRadius.toString() + 'px';
-
-          let dotY = linePx;
-          if (event.track <= 3) {
-            if (!scrollUp) {
-              dotY += holeWidth;
-            }
+            noteRect.classList.add('control-hole')
           }
 
-          let dotViewport = openSeadragon.viewport.imageToViewportCoordinates(
-            dotX,
-            dotY // Place dot a bit lower so it's inside the hole
-          );
-          
-          openSeadragon.viewport.viewer.addOverlay(noteDot, dotViewport, OpenSeadragon.Placement.CENTER);
+          let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, holeWidth, noteLength);
 
-          if (holeOverlays[event.tick] === undefined) {
-            holeOverlays[event.tick] = [noteDot];
+          openSeadragon.viewport.viewer.addOverlay(noteRect, rectViewport);
+
+          if (holeOverlays[offTime] === undefined) {
+            holeOverlays[offTime] = [noteRect];
           } else {
-            holeOverlays[event.tick].push(noteDot);
+            holeOverlays[offTime].push(noteRect);
           }
         }
       }
@@ -866,8 +884,6 @@ const applyTempoChange = function(inputTempo) {
     (inputTempo - baseTempo) / baseTempo;
   playbackTempo = sliderTempo * tempoRatio;
 
-  //console.log("BASE TEMPO",baseTempo,"INPUT TEMPO",inputTempo,"TEMPO RATIO IS",tempoRatio,"SLIDER TEMPO",sliderTempo,"SETTING PLAYBACK TEMPO TO", playbackTempo);
-
   if (scorePlayer && scorePlaying) {
     scorePlayer.pause();
     scorePlayer.setTempo(playbackTempo);
@@ -906,27 +922,29 @@ const playPausePlayback = function () {
 
   if (samplePlayer.isPlaying()) {
     // Pause
+    console.log("PAUSING");
     samplePlayer.pause();
     clearScrollTimer();
     playState = "paused";
   } else {
     // Play
     if (showRoll) {
-      openSeadragon.viewport.zoomTo(HOME_ZOOM);
+    openSeadragon.viewport.zoomTo(HOME_ZOOM);
+      if (playState == "stopped") {
+        // If we want this behavior (not panning back to the beginning
+        // after a stop until the Play button is pressed), note that it
+        // may be the case that sometimes the first note or two is lost
+        // during the scrollback. The foolproof solution would be to
+        // use an event listener to wait until the scroll is completed
+        // before starting playback, but maybe it's not necessary...
+        panViewportToTick(0);
+      }
     }
     activeNotes.forEach((noteNumber) => {
       keyboardToggleKey(noteNumber, false);
     });
     activeNotes = [];
     playState = "playing";
-    
-    // If we want this behavior (not panning back to the beginning
-    // after a stop until the Play button is pressed), note that it
-    // may be the case that sometimes the first note or two is lost
-    // during the scrollback. The foolproof solution would be to
-    // use an event listener to wait until the scroll is completed
-    // before starting playback, but maybe it's not necessary...
-    panViewportToTick(0);
 
     scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
     samplePlayer.play();
@@ -945,6 +963,9 @@ const stopPlayback = function () {
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
+    if (showRoll) {
+      clearOverlays(samplePlayer.getCurrentTick(), true);
+    }
   }
 };
 
