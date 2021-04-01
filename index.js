@@ -1,138 +1,259 @@
 import MidiPlayer from "midi-player-js"; // Decodes and plays back MIDI data
-import Soundfont from "soundfont-player"; // Generates sounds for MIDI events
-import OpenSeadragon from 'openseadragon';
-import IntervalTree from 'node-interval-tree';
-import verovio from 'verovio';
-import { v4 as uuidv4 } from 'uuid';
-import Keyboard from 'piano-keyboard';
+import OpenSeadragon from "openseadragon";
+import IntervalTree from "node-interval-tree";
+import verovio from "verovio";
+import { v4 as uuidv4 } from "uuid";
+import Keyboard from "piano-keyboard";
+import { Piano } from "@tonejs/piano";
+import Bunzip from "seek-bzip";
+import { Buffer } from "buffer";
+import ATON from "aton";
 
-const ADSR_SAMPLE_DEFAULTS = { "attack": 0.01, "decay": 0.1, "sustain": 0.9, "release": 0.3 };
 const UPDATE_INTERVAL_MS = 100;
-const SHARP_NOTES = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
-const FLAT_NOTES = ["A", "Bb", "B", "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab"];
-const SOFT_PEDAL_RATIO = .67;
-const DEFAULT_NOTE_VELOCITY = 33.0;
+const SHARP_NOTES = [
+  "A",
+  "A#",
+  "B",
+  "C",
+  "C#",
+  "D",
+  "D#",
+  "E",
+  "F",
+  "F#",
+  "G",
+  "G#",
+];
+const FLAT_NOTES = [
+  "A",
+  "Bb",
+  "B",
+  "C",
+  "Db",
+  "D",
+  "Eb",
+  "E",
+  "F",
+  "Gb",
+  "G",
+  "Ab",
+];
+const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are struck (usually)
+const DEFAULT_NOTE_VELOCITY = 33.0; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
+const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
 const HOME_ZOOM = 1;
-let midiData = require("./mididata.json");
+const ACCENT_BUMP = 1.5; // Multiple to increase velocity while the accent button is pressed
+const TEMPO_KEY_DELTA = 5; // Number of tempo "bpm" to + or - on keyboard input
+const VOLUME_KEY_DELTA = .2; // Proportion to + or - volume on keyboard input
+const VOL_ACCENT_MOD_DELTA = .5;
+const PEDAL_TEMPO_MOD_DELTA = .4;
+const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
+const SUSTAIN_PEDAL_KEY = "KeyC";
+const SOFT_PEDAL_KEY = "KeyQ";
+const TEMPO_SLOWER_KEY = "KeyW";
+const TEMPO_FASTER_KEY = "KeyE";
+const PEDAL_TEMPO_MODIFY_KEY = "ShiftLeft";
+const VOLUME_DOWN_KEY = "BracketLeft";
+const VOLUME_UP_KEY = "BracketRight";
+const ACCENT_KEY = "Comma";
+const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
+const SUSTAIN_LESS_KEY = "KeyB";
+const SUSTAIN_MORE_KEY = "KeyN";
+const SUSTAIN_LEVEL_DELTA = 5;
+//const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
+
+//let midiData = require("./mididata.json");
 let scoreData = require("./scoredata.mei.json");
 
-const recordings_data = { 'zb497jz4405': { 'slug': 'mozart_rondo_alla_turca', 'title': 'Mozart/Reinecke - Türkischer Marsch', 'image_url': 'https://stacks.stanford.edu/image/iiif/zb497jz4405%2Fzb497jz4405_0001/info.json' },
-                          'yj598pj2879': { 'slug': 'liszt_soirees_de_vienne', 'title': 'Liszt/Carreño - Soirées de Vienne, no. 6', 'image_url': 'https://stacks.stanford.edu/image/iiif/yj598pj2879%2Fyj598pj2879_0001/info.json' },
-                          'pz594dj8436': { 'slug': 'alonso_las_corsarias', 'title': 'F. Alonso: Las corsarias: Selecciones', 'image_url': 'https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json' }
-						            }
+const recordings_data = {
+  zb497jz4405: {
+    slug: "mozart_rondo_alla_turca",
+    title: "Mozart/Reinecke - Türkischer Marsch",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/zb497jz4405%2Fzb497jz4405_0001/info.json",
+  },
+  yj598pj2879: {
+    slug: "liszt_soirees_de_vienne",
+    title: "Liszt/Carreño - Soirées de Vienne, no. 6",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/yj598pj2879%2Fyj598pj2879_0001/info.json",
+  },
+  pz594dj8436: {
+    slug: "alonso_las_corsarias",
+    title: "F. Alonso: Las corsarias: Selecciones",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/pz594dj8436%2Fpz594dj8436_0002/info.json",
+  },
+  dj406yq6980: {
+    slug: "brassin_magic_fire",
+    title: "Brassin-Wagner/Hofmann - Feuerzauber",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/dj406yq6980%2Fdj406yq6980_0001/info.json",
+  },
+  rx870zt5437: {
+    slug: "peterossi_tango_argentino",
+    title: "Peterossi: Galleguita: tango argentino",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/rx870zt5437%2Frx870zt5437_0002/info.json",
+  },
+  wt621xq0875: {
+    slug: "lamond_pathetique",
+    title: "Beethoven/Lamond: Sonate pathétique",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/wt621xq0875%2Fwt621xq0875_0001/info.json",
+  },
+  kr397bv2881: {
+    slug: "lamond_pathetique_mvt3",
+    title: "Beethoven/Lamond: Sonate pathétique mvt. 3",
+    image_url:
+      "https://stacks.stanford.edu/image/iiif/kr397bv2881%2Fkr397bv2881_0001/info.json",
+  }
+};
 
-let AudioContext = window.AudioContext || window.webkitAudioContext || false; 
-let ac = null; // Audio Context
 let currentRecording = null;
 let rollMetadata = {};
 let samplePlayer = null; // the MIDI player
 let scorePlayer = null;
 let playState = "stopped";
-let instrument = null;
-let adsr = ADSR_SAMPLE_DEFAULTS;
 let totalTicks = 0;
 let currentTick = 0;
 let currentProgress = 0.0;
-let sampleInst = 'acoustic_grand_piano';
-let activeAudioNodes = {};
 let volumeRatio = 1.0;
 let leftVolumeRatio = 1.0;
 let rightVolumeRatio = 1.0;
-let baseTempo = null;
+let baseTempo = 60.0;
+let midiTempo = 60.0
 let tempoRatio = 1.0;
 let sliderTempo = 60.0;
 let playbackTempo = 0.0;
 let activeNotes = [];
-let sustainedNotes = [];
 let sustainPedalOn = false;
 let softPedalOn = false;
-let sustainPedalLocked =false;
+let sustainPedalLocked = false;
 let softPedalLocked = false;
+let sustainLevel = 127;
 let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
+let tempoMap = null;
+let notesMap = null;
+let playComputedExpressions = true;
+let useRollPedaling = true;
+let accentOn = false;
+let pedalTempoModOn = false;
+let volAccentModDelta = 1;
+let pedalTempoModDelta = 1;
+let useMidiTempos = true;
 
+let showRoll = false;
 let openSeadragon = null;
 let firstHolePx = 0;
 let scrollTimer = null;
 let viewerId = uuidv4();
+let overlayPersist = 100; // # ticks = pixels on original roll image
+let holeOverlays = {}; // key = tick, value = div
+let holeWidth = 0;
+let holeSep = 0;
+let holesInfo = {};
+let paintHoles = false; // Whether to draw in entire hole lane on roll
+let paintedHoles = {}; // Holes currently drawn as overlays
 
+/* Defaults for time-based acceleration emulation */
+let rollPPI = 300.0;
+let timeQuantumInTicks = 12.0 * rollPPI;
+let accelRate = .0022;
+
+let showScore = false;
+let noScore = true;
+let scoreStorage = null;
+let recordingSlug = null;
 let scorePages = [];
 let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
-let currentRecordingId = Object.keys(recordings_data)[2];
+let currentRecordingId = Object.keys(recordings_data)[0];
 let vrvToolkit = null;
-let RecordingOptions = []; // Elements for menu of Recordings to play
 
 let scrollUp = false;
 
 let keyboard = null;
 
-
-const loadRecording = function(e, currentRecordingId) {
-
-  if (e) {
-    currentRecordingId = e.target.value;
-	}
-
-	if (samplePlayer && (samplePlayer.isPlaying() || (playState === "paused"))) {
-		samplePlayer.stop();
-	}
-	if (scrollTimer) {
-		clearInterval(scrollTimer);
-		scrollTimer = null;
+const startNote = function (noteNumber, velocity) {
+  if (velocity === null) {
+    velocity = DEFAULT_NOTE_VELOCITY / 128.0;
   }
-  activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-  activeAudioNodes = {};
-  activeNotes = [];
-  sustainedNotes = [];
-  highlightedNotes = [];
-  releaseSustainPedal();
-  softPedalOn = false;
-  document.getElementById("softPedal").classList.remove("pressed");
 
-	openSeadragon.addOnceHandler("update-viewport", () => {
-		panViewportToTick(0);
-	});
-	
-	console.log("loading Recording ID", currentRecordingId);
-	
-	document.getElementById('recordings').value = currentRecordingId;
+  if (accentOn) {
+    velocity = velocity * (ACCENT_BUMP * volAccentModDelta);
+  }
 
-    let recordingSlug = recordings_data[currentRecordingId]['slug'];
-    currentRecording = midiData[recordingSlug];
+  velocity = Math.min(velocity, 1.0);
 
-	openSeadragon.open(recordings_data[currentRecordingId]['image_url']);
-    
-  initPlayer();
-  
+  if (velocity > 0) {
+    piano.keyDown({ midi: noteNumber, velocity: velocity });
+  }
+  keyboardToggleKey(noteNumber, true);
+};
+
+const stopNote = function (noteNumber) {
+  piano.keyUp({ midi: noteNumber });
+  keyboardToggleKey(noteNumber, false);
+};
+
+const initScorePlayer = function () {
+
   scorePlayer = null;
 
-  /* load the MEI data as string into the toolkit */
   if (recordingSlug in scoreData) {
+    noScore = false;
+    document.getElementById("showScore").disabled = false;
+  } else {
+    noScore = true;
+    document.getElementById("showScore").disabled = true;
+  }
 
-	  vrvToolkit.loadData(scoreData[recordingSlug]);
-	
-	  /* render the fist page as SVG */
+  if (!showScore || noScore) {
+    if (document.getElementById("scoreWrapper").hasChildNodes()) {
+      let scoreNode = document.getElementById("scoreWrapper").children[0];
+      if (scoreNode) {
+        scoreStorage = scoreNode.cloneNode(true);
+        scoreNode.remove();
+      }
+    }
+    return;
+  }
+
+  /* load the MEI data as a string into the toolkit */
+
+  if (showScore && !noScore) {
+
+    if (scoreStorage) {
+      document.getElementById("scoreWrapper").appendChild(scoreStorage);
+    }
+
+    vrvToolkit.loadData(scoreData[recordingSlug]);
+
+    /* render the fist page as SVG */
     scorePages = [];
-    for (let i=1; i<=vrvToolkit.getPageCount(); i++) {
+    for (let i = 1; i <= vrvToolkit.getPageCount(); i++) {
       scorePages.push(vrvToolkit.renderToSVG(i, {}));
-	  }
-	
-    document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+    }
 
-	  scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
+    document.getElementById("scorePage").innerHTML =
+      scorePages[currentScorePage - 1];
 
-	  /* Instantiate the score MIDI player */
+    scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
+
+    /* Instantiate the score MIDI player */
     scorePlayer = new MidiPlayer.Player();
 
-    scorePlayer.on('midiEvent', function(e) {
+    scorePlayer.on("midiEvent", function (e) {
+      const timeMultiplier =
+        parseFloat(scorePlayer.getSongTime() * 1000.0) /
+        parseFloat(scorePlayer.totalTicks);
 
-      const timeMultiplier = parseFloat(scorePlayer.getSongTime() * 1000.0) / parseFloat(scorePlayer.totalTicks);
-
-      let vrvTime = parseInt(e.tick*timeMultiplier) + 1;
+      let vrvTime = parseInt(e.tick * timeMultiplier) + 1;
 
       let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
 
@@ -141,7 +262,7 @@ const loadRecording = function(e, currentRecordingId) {
         lastNoteIds.forEach((noteId) => {
           let noteElt = document.getElementById(noteId);
           if (noteElt) {
-          noteElt.setAttribute("style", "fill: #000");
+            noteElt.setAttribute("style", "fill: #000");
           }
         });
       }
@@ -149,7 +270,8 @@ const loadRecording = function(e, currentRecordingId) {
       if (elementsattime.page > 0) {
         if (elementsattime.page != currentScorePage) {
           currentScorePage = elementsattime.page;
-          document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
+          document.getElementById("scorePage").innerHTML =
+            scorePages[currentScorePage - 1];
         }
       }
 
@@ -167,792 +289,1349 @@ const loadRecording = function(e, currentRecordingId) {
       midiEvent(e);
     });
 
-    scorePlayer.on('endOfFile', function() {
+    scorePlayer.on("endOfFile", function () {
       console.log("END OF FILE");
-      playScore(false);
+      scorePlaying = false;
       // Do something when end of the file has been reached.
     });
 
     // Load MIDI data
     scorePlayer.loadDataUri(scoreMIDI);
-
   }
 
-	updateProgress();
-
 }
 
-/* SAMPLE-BASED PLAYBACK USING midi-player-js AND soundfont-player */
+const loadRecording = function (e, newRecordingId) {
+  if (e) {
+    currentRecordingId = e.target.value;
+  } else {
+    currentRecordingId = newRecordingId;
+  }
 
-const initPlayer = function() {
+  if (samplePlayer && (samplePlayer.isPlaying() || playState === "paused")) {
+    samplePlayer.stop();
+    playState = "stopped";
+    if (showRoll) {
+      clearOverlays(samplePlayer.getCurrentTick(), true);
+    }
+  }
+  clearScrollTimer();
+  activeNotes.forEach((noteNumber) => {
+    keyboardToggleKey(noteNumber, false);
+  });
+  activeNotes = [];
+  highlightedNotes = [];
+  releaseSustainPedal();
+  softPedalOn = false;
+  document.getElementById("softPedal").classList.remove("pressed");
 
-    /* Instantiate the MIDI player */
-    let MidiSamplePlayer = new MidiPlayer.Player();
+  console.log("loading recording ID", currentRecordingId);
 
-    /* Various event handlers, mostly used for debugging */
-    MidiSamplePlayer.on('fileLoaded', () => {
-      console.log("data loaded");
+  document.getElementById("recordings").value = currentRecordingId;
 
-      function decodeCharRefs(string) {
-        return string
-            .replace(/&#(\d+);/g, function(match, num) {
-                return String.fromCodePoint(num);
-            })
-            .replace(/&#x([A-Za-z0-9]+);/g, function(match, num) {
-                return String.fromCodePoint(parseInt(num, 16));
-            });
+  recordingSlug = recordings_data[currentRecordingId]["slug"];
+  //currentRecording = midiData[recordingSlug];
+
+  initPlayer();
+
+  initScorePlayer();
+
+};
+
+const loadRecordingData = function(data) {
+  if (data !== undefined) {
+    currentRecording = data;
+    samplePlayer.loadArrayBuffer(currentRecording);
+  }
+}
+
+const initPlayer = function () {
+
+  /* Instantiate the MIDI player */
+  samplePlayer = new MidiPlayer.Player();
+
+  /* Various event handlers, mostly used for debugging */
+  samplePlayer.on("fileLoaded", () => {
+    console.log("data loaded");
+
+    function decodeCharRefs(string) {
+      return string
+        .replace(/&#(\d+);/g, function (match, num) {
+          return String.fromCodePoint(num);
+        })
+        .replace(/&#x([A-Za-z0-9]+);/g, function (match, num) {
+          return String.fromCodePoint(parseInt(num, 16));
+        });
+    }
+
+    firstHolePx = 0;
+    holesInfo = {};
+    rollMetadata = {};
+    const metadataRegex = /^@(?<key>[^:]*):[\t\s]*(?<value>.*)$/;
+    let tempoChanges = [];
+
+    pedalMap = new IntervalTree();
+    notesMap = {"open": {}}
+
+    // Pedal events should be duplicated on each track, but best not to assume
+    // this will always be the case. Assume however that the events are
+    // always temporally ordered in each track.
+    samplePlayer.events.forEach((track, t) => {
+      let sustainOn = false;
+      let softOn = false;
+      let sustainStart = 0;
+      let softStart = 0;
+
+      //console.log("TRACK",t,"EVENTS",track);
+
+      track.forEach((event) => {
+        if (event.name === "Controller Change") {
+          // Sustain pedal on/off
+          if (event.number == 64) {
+            if (event.value == 127 && sustainOn != true) {
+              sustainOn = true;
+              sustainStart = event.tick;
+            } else if (event.value == 0) {
+              sustainOn = false;
+              pedalMap.insert(sustainStart, event.tick, "sustain");
+            }
+            // Soft pedal on/off
+          } else if (event.number == 67) {
+            // Consecutive "on" events just mean "yep, still on" ??
+            if (event.value == 127 && softOn != true) {
+              softOn = true;
+              softStart = event.tick;
+            } else if (event.value == 0) {
+              softOn = false;
+              pedalMap.insert(softStart, event.tick, "soft");
+            }
+          }
+        } else if (event.name === "Set Tempo") {
+          tempoChanges.push([parseInt(event.tick), parseFloat(event.data)]);
+        } else if (event.name === "Text Event") {
+          let text = decodeCharRefs(event.string);
+          if (!text) return;
+          const found = text.match(metadataRegex);
+          rollMetadata[found.groups.key] = found.groups.value;
+        } else if (event.name === "Note on") {
+          if (event.track > 3) {
+            // XXX May eventually process control events here too
+            return;
+          }
+          const noteNumber = event.noteNumber;
+          if ((event.velocity == 0) && (notesMap["open"][noteNumber] !== undefined)) {
+            const startTick = notesMap["open"][noteNumber];
+            if (notesMap[startTick] === undefined) {
+              notesMap[startTick] = {};
+              notesMap[startTick][noteNumber] = event.tick;
+            } else {
+              notesMap[startTick][noteNumber] = event.tick;
+            }
+            delete notesMap["open"][noteNumber];
+          }
+          if ((event.velocity > 0) && (notesMap["open"][noteNumber] === undefined)) {
+            notesMap["open"][noteNumber] = event.tick;
+          }
+        }
+      });
+    });
+
+    totalTicks = samplePlayer.totalTicks;
+
+    let sortedTempoChanges = tempoChanges.sort(function(a, b) {
+      return a[0] - b[0];
+    });
+
+    tempoMap = new IntervalTree();
+
+    //console.log("LENGTH-BASED ACCELERATION MAP (FROM MIDI FILE)");
+
+    sortedTempoChanges.forEach((item, i) => {
+      if (i == 0) {
+        baseTempo = item[1];
       }
 
-      firstHolePx = 0;
-      let lastHolePx = 0;
-      let holeWidthPx = 0;
-      baseTempo = null;
-      let earliestTempoTick = null;
-      rollMetadata = {};
-      const metadataRegex = /^@(?<key>[^:]*):[\t\s]*(?<value>.*)$/;
-
-      pedalMap = new IntervalTree();
-
-      // Pedal events should be duplicated on each track, but best not to assume
-      // this will always be the case. Assume however that the events are
-      // always temporally ordered in each track.
-      MidiSamplePlayer.events.forEach((track) => {
-        let sustainOn = false;
-        let softOn = false;
-        let sustainStart = 0;
-        let softStart = 0;
-        track.forEach((event) => {
-          if (event.name === "Controller Change") {
-            // Sustain pedal on/off
-            if (event.number == 64) {
-              if ((event.value == 127) && (sustainOn != true)) {
-                sustainOn = true;
-                sustainStart = event.tick;
-              } else if (event.value == 0) {
-                sustainOn = false;
-                pedalMap.insert(sustainStart, event.tick, "sustain");
-              }
-            // Soft pedal on/off
-            } else if (event.number == 67) {
-              // Consecutive "on" events just mean "yep, still on" ??
-              if ((event.value == 127) && (softOn != true)) {
-                softOn = true;
-                softStart = event.tick;
-              } else if (event.value == 0) {
-                softOn = false;
-                pedalMap.insert(softStart, event.tick, "soft");
-              }
-            }
-          } else if (event.name === "Set Tempo") {
-            if ((earliestTempoTick === null) || (event.tick < earliestTempoTick)) {
-              baseTempo = event.data;
-              earliestTempoTick = event.tick;
-            }
-          } else if (event.name === "Text Event") {
-            let text = decodeCharRefs(event.string);
-            if (!text) return;
-            /* @IMAGE_WIDTH and @IMAGE_LENGTH should be the same as from viewport._contentSize
-            * Can't think of why they wouldn't be, but maybe check anyway. Would need to scale
-            * all pixel values if so.
-            * Other potentially useful values, e.g., for drawing overlays:
-            * @ROLL_WIDTH (this is smaller than the image width)
-            * @HARD_MARGIN_TREBLE
-            * @HARD_MARGIN_BASS
-            * @HOLE_SEPARATION
-            * @HOLE_OFFSET
-            * All of the source/performance/recording metadata is in this track as well.
-            */
-            const found = text.match(metadataRegex);
-            rollMetadata[found.groups.key] = found.groups.value;
-          }
-        });
+      if (i < sortedTempoChanges.length - 1) {
+        tempoMap.insert(item[0], sortedTempoChanges[i+1][0] - 1, item[1]);
+      } else {
+        tempoMap.insert(item[0], totalTicks, item[1]);
+      }
     });
-    
+
+    let timeTempoMap = new IntervalTree();
+
+    // Use 'LENGTH_DPI' for the roll PPI? It's often given as 300.25ppi on the
+    // roll metadata, but for now rollPPI is hardcoded at 300.
+    if ('ACCEL_INCH' in rollMetadata) {
+      timeQuantumInTicks = parseFloat(rollMetadata['ACCEL_INCH']) * rollPPI;
+    }
+    if ('ACCEL_PERCENT' in rollMetadata) {
+      accelRate = parseFloat(rollMetadata['ACCEL_PERCENT']) / 100.0;
+    }
+    let accelFactor = 1.0;
+    let thisTempo = baseTempo;
+    let thisTime = 0.0;
+
+    while (thisTime < totalTicks) {
+      
+      let nextTime = thisTime + Math.floor(timeQuantumInTicks * accelFactor);
+      thisTempo = parseInt(baseTempo * accelFactor);
+
+      if (nextTime > totalTicks) {
+        nextTime = totalTicks + 1;
+      }
+
+      timeTempoMap.insert(thisTime, nextTime-1, thisTempo);
+
+      thisTime = nextTime;
+      accelFactor += accelRate;
+    }
+
     console.log(rollMetadata);
 
-	  document.getElementById('title').innerText = rollMetadata['TITLE'];
-	  document.getElementById('performer').innerText = rollMetadata['PERFORMER'];
-	  document.getElementById('composer').innerText = rollMetadata['COMPOSER'];
-	  document.getElementById('label').innerText = rollMetadata['LABEL'];
-	  document.getElementById('purl').innerHTML = '<a href="' + rollMetadata['PURL'] + '">' + rollMetadata['PURL'] + '</a>';
-  //   document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
-  
+    document.getElementById("title").innerText = rollMetadata["TITLE"];
+    let performer = rollMetadata["PERFORMER"];
+    if (rollMetadata["PERFORMER"] === undefined) {
+      performer = "N/A";
+    }
+    document.getElementById("performer").innerText = performer;
+    document.getElementById("composer").innerText = rollMetadata["COMPOSER"];
+    document.getElementById("label").innerText = rollMetadata["LABEL"];
+    document.getElementById("purl").innerHTML =
+      '<a href="' + rollMetadata["PURL"] + '">' + rollMetadata["PURL"] + "</a>";
+    document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+
     scrollUp = false;
-    if (rollMetadata['ROLL_TYPE'] !== "welte-red") {
+    document.getElementById("playExpressions").disabled = false;
+    document.getElementById("useRollPedaling").disabled = false;
+    if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
       scrollUp = true;
+      document.getElementById("playExpressions").disabled = true;
+      document.getElementById("useRollPedaling").disabled = true;
     }
 
-    firstHolePx = parseInt(rollMetadata['FIRST_HOLE']);
+    firstHolePx = parseInt(rollMetadata["FIRST_HOLE"]);
     if (scrollUp) {
-      firstHolePx = parseInt(rollMetadata['IMAGE_LENGTH']) - firstHolePx;
+      firstHolePx = parseInt(rollMetadata["IMAGE_LENGTH"]) - firstHolePx;
     }
 
-    lastHolePx = parseInt(rollMetadata['LAST_HOLE']);
-	  holeWidthPx = parseInt(rollMetadata['AVG_HOLE_WIDTH']);
-	  
-	  let rollWidth = parseInt(rollMetadata['ROLL_WIDTH']);
+    //let lastHolePx = parseInt(rollMetadata["LAST_HOLE"]);
+    //let rollWidth = parseInt(rollMetadata["ROLL_WIDTH"]);
 
-      /*
-      // Play line can be drawn via CSS (though not as accurately), but very
-      // similar code to this would be used to show other overlays, e.g., to
-      // "fill" in actively playing notes and other mechanics. Performance is
-      // an issue, though.
-      let startBounds = openSeadragon.viewport.getBounds();
-      let playPoint = new OpenSeadragon.Point(0, startBounds.y + (startBounds.height / 2.0));
-      let playLine = openSeadragon.viewport.viewer.getOverlayById('play-line');
-      if (!playLine) {
-        playLine = document.createElement("div");
-        playLine.id = "play-line";
-        openSeadragon.viewport.viewer.addOverlay(playLine, playPoint, OpenSeadragon.Placement.TOP_LEFT);
-      } else {
-        playLine.update(playPoint, OpenSeadragon.Placement.TOP_LEFT);
+    holeWidth = parseFloat(rollMetadata['AVG_HOLE_WIDTH'].replace('px',''));
+
+    holeSep = parseFloat(rollMetadata['HOLE_SEPARATION'].replace('px',''));
+
+    updateProgress();
+
+    if (showRoll) {
+      openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
+
+      openSeadragon.addOnceHandler("update-viewport", () => {
+        panViewportToTick(0);
+      });
+    }
+    currentTick = 0;
+    playerProgress();
+
+  });
+
+  samplePlayer.on("playing", (currentTick) => {
+    // Do something while player is playing
+    // (this is repeatedly triggered within the play loop)
+  });
+
+  samplePlayer.on("midiEvent", midiEvent);
+
+  samplePlayer.on("endOfFile", function () {
+    console.log("END OF FILE");
+    stopPlayback();
+    // Do something when end of the file has been reached.
+    panViewportToTick(0);
+  });
+
+  // Load the raw MIDI if the expression MIDI is not available
+  // XXX There's probably a more elegant way to do this...
+  // XXX Would be nice to be able to load this directly from SDR, but
+  // so far, only the records that are in a Spotlight exhibit have
+  // their MIDI files in the SDR!
+  // MIDI files for Welte red rolls are at
+  // https://raw.githubusercontent.com/pianoroll/SUPRA/master/welte-red/midi-exp/[ID]_exp.mid
+  // (but not for the Garcia-Sampedro rolls)
+  fetch(BASE_DATA_URL + 'midi/' + currentRecordingId + '_exp.mid')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Network error');
       }
-      */
-
+      return response.arrayBuffer();
+    })
+    .catch(error => {
+      fetch(BASE_DATA_URL + 'midi/' + currentRecordingId + '_note.mid')
+        .then(response => response.arrayBuffer())
+        .then(data => {
+          loadRecordingData(data);
+        });
+    })
+    .then(data => {
+      loadRecordingData(data);
     });
-    
-    MidiSamplePlayer.on('playing', currentTick => {
-        // Do something while player is playing
-        // (this is repeatedly triggered within the play loop)
-    });
-    
-    MidiSamplePlayer.on('midiEvent', midiEvent);
-    
-    MidiSamplePlayer.on('endOfFile', (function() {
-        console.log("END OF FILE");
-        stopPlayback();
-		// Do something when end of the file has been reached.
-		panViewportToTick(0);
-    }));
-
-	samplePlayer = MidiSamplePlayer;
-
-    /* Load MIDI data */
-	samplePlayer.loadDataUri(currentRecording);
-
-	totalTicks = samplePlayer.totalTicks;
+  
+  fetch(BASE_DATA_URL + 'analyses/' + currentRecordingId + '_analysis.txt.bz2')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Network error');
+      }
+      return response.arrayBuffer();
+    })
+    .catch(error => {
+      paintHoles = false;
+      return null;
+    })
+    .then(data => {
+      if (data) {
+        processHoleAnalysis(data);
+      }
+    })
 
 }
 
-const midiEvent = function(event) {
+const processHoleAnalysis = function(data) {
+  const output = Bunzip.decode(Buffer.from(data));
+  const atonReader = new ATON();
+  const analysis = atonReader.parse(output.toString());
+  const holesData = analysis.ROLLINFO.HOLES.HOLE;
+  paintHoles = true;
 
-	//console.log("MIDI EVENT",event);
+  holesData.forEach(hole => {
 
-    // Do something when a MIDI event is fired.
-    // (this is the same as passing a function to MidiPlayer.Player() when instantiating).
-    if (event.name === 'Note on') {
+    if (hole['NOTE_ATTACK'] === undefined) {
+      // This happens rarely; not sure why
+      return;
+    }
+    // XXX This could potentially be made more efficient if
+    // MIDI_KEY values other than -1 were actually provided
+    // in the hole processing output (it would help to differentiate
+    // control holes from keypress holes). But maybe this isn't that
+    // important; if each control and keypress event has a slightly
+    // different tick value, then it should be sufficient to use the
+    // tick values alone to determine which MIDI event belongs to
+    // each hole.
+    const attack = parseInt(hole['NOTE_ATTACK'].replace('px', ''));
+    if (holesInfo[attack] === undefined) {
+      holesInfo[attack] = [hole];
+    } else {
+      holesInfo[attack].push(hole);
+    }
+  });
 
-      const noteNumber = event.noteNumber;
-      //const noteName = getNoteName(noteNumber);
-      let noteVelocity = event.velocity;
+}
 
-      // Note off
-      if (noteVelocity === 0) {
-        //console.log("OFF",noteNumber,getNoteName(noteNumber));
-        /*if (sustainedNotes.includes(noteNumber)) {
-          console.log("SUSTAIN PEDAL IS ON, KEEPING NOTE PLAYING");
-        }*/
+const clearOverlays = function(newTick, allIfTrue) {
 
-        if (!sustainedNotes.includes(noteNumber)) {
-          try {
-            activeAudioNodes[noteNumber].stop(ac.currentTime);
-          } catch(error) {
-			console.log("COULDN'T STOP",noteNumber,getNoteName(noteNumber));
-			console.log(error);
+  if (!showRoll) {
+    return;
+  }
+
+  Object.keys(holeOverlays).forEach(tick => {
+    if (allIfTrue || (newTick > parseInt(tick))) {
+      holeOverlays[tick].forEach(item => {
+        openSeadragon.viewport.viewer.removeOverlay(item);
+      });
+      delete holeOverlays[tick];
+    }
+  });
+  // We also keep track of the hole IDs of the currently drawn
+  // holes, so we don't draw them twice when their start pixel
+  // values coincide
+  if (paintHoles) {
+    Object.keys(paintedHoles).forEach(holeId => {
+      if (paintedHoles[holeId] <= newTick) {
+        delete paintedHoles[holeId];
+      }
+    });
+  }
+}
+
+const midiEvent = function (event) {
+
+  clearOverlays(event.tick, false);
+
+  let linePx = firstHolePx + event.tick;
+  if (scrollUp) {
+    linePx = firstHolePx - event.tick;
+  }
+
+  //console.log("MIDI EVENT AT TICK",event.tick,"PIXEL",linePx);
+
+  /* Useful numbers for aligning overlays with roll: */
+  /*
+  rollMetadata['AVG_HOLE_WIDTH']
+  rollMetadata['HARD_MARGIN_BASS']
+  rollMetadata['HARD_MARGIN_TREBLE']
+  rollMetadata['HOLE_OFFSET']
+  rollMetadata['HOLE_SEPARATION']
+  rollMetadata['ROLL_TYPE'] // usually 88 keys, eventually some may have 65
+  */
+
+  if (event.name === "Note on") {
+    const noteNumber = event.noteNumber;
+
+    // Note off
+    // This ignores velcity 0 events on the higher control tracks -- not good?
+    if ((event.velocity === 0) && (event.track <= 3)) {
+
+      while (activeNotes.includes(parseInt(noteNumber))) {
+        activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
+      }
+      stopNote(noteNumber);
+
+    } else if (event.track > 3) {
+      //console.log("NOTE ON AT TICK",event.tick,noteNumber,"TRACK",event.track,"LIKELY CONTROL");
+
+    } else if ((noteNumber < 21) || (noteNumber > 108)) {
+      //console.log("NOTE ON AT TICK",event.tick,noteNumber,"TRACK",event.track,"POSSIBLY CONTROL");
+
+    } else {
+      //console.log("NOTE ON AT TICK",event.tick,noteNumber,"TRACK",event.track,"VELOCITY",event.velocity);
+
+      /* Visualize note on roll */
+      if (showRoll) {
+        if (holesInfo[linePx] !== undefined) {
+        
+          // AREA: "1171px"
+          // CENTROID_COL: "482.535px"
+          // CENTROID_ROW: "13454.9px"
+          // CIRCULARITY: "0.72"
+          // HPIXCOR: "3.6px"
+          // ID: "K0_N1"
+          // MAJOR_AXIS: "0deg"
+          // MIDI_KEY: "-1"
+          // NOTE_ATTACK: "13426px"
+          // OFF_TIME: "13483px"
+          // ORIGIN_COL: "472px"
+          // ORIGIN_ROW: "13426px"
+          // PERIMETER: "142.512px"
+          // TRACKER_HOLE: "13"
+          // WIDTH_COL: "22px"
+          // WIDTH_ROW: "57px"
+
+          /* Use hole analysis report data, if available */
+          holesInfo[linePx].forEach(hole => {
+
+            const holeId = hole['ID'];
+
+            if (holeId in paintedHoles) {
+              return;
+            }
+
+            const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
+            const pointX = parseInt(hole['ORIGIN_COL'].replace('px', ''));
+            const pointY = parseInt(hole['ORIGIN_ROW'].replace('px', ''));
+
+            //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
+            const offPx = parseInt(hole['OFF_TIME'].replace('px', ''));
+            const offTime = offPx - firstHolePx;
+            const noteLength = offPx - pointY;
+
+            let noteElt = document.createElement("div");
+            if (event.track <= 3) {
+              noteElt.classList.add('music-hole');
+            } else {
+              noteElt.classList.add('control-hole')
+            }
+
+            let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, colWidth, noteLength);
+            openSeadragon.viewport.viewer.addOverlay(noteElt, rectViewport);
+
+            if (holeOverlays[offTime] === undefined) {
+              holeOverlays[offTime] = [noteElt];
+            } else {
+              holeOverlays[offTime].push(noteElt);
+            }
+
+            paintedHoles[holeId] = offTime;
+
+          });
+        
+        } else {
+
+          /* No hole analysis data available; build overlays from notesMap and guesswork. */
+
+          // The use of holeSep seems to be correct, but the X offset is a total guess
+          let noteOffset = 0;
+
+          let noteNudge = 0;
+
+          if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
+            noteOffset = noteNumber - 5;
+            noteNudge = holeSep / 2.0;
+          } else {
+            noteOffset = noteNumber - 11;
+            noteNudge = holeSep;
           }
-          delete activeAudioNodes[noteNumber];
-        }
-        while(activeNotes.includes(parseInt(noteNumber))) {
-          activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
-        }
 
-        keyboardToggleKey(noteNumber, false);
-      
-      // Note on
-      } else {
-        //console.log("ON",noteNumber,getNoteName(noteNumber))
-        if (sustainedNotes.includes(noteNumber)) {
-          //console.log("NOTE STILL SUSTAINED WHEN RE-TOUCHED, STOPPING");
-          try {
-            activeAudioNodes[noteNumber].stop();
-          } catch {
-            console.log("Tried and failed to stop sustained note being re-touched",noteNumber);
+          let pointX = noteOffset * holeSep + noteNudge;
+
+          let offTime = event.tick + overlayPersist;
+
+          if ((notesMap[event.tick] !== undefined ) && (notesMap[event.tick][noteNumber] !== undefined)) {
+            offTime = notesMap[event.tick][noteNumber];
           }
-          delete activeAudioNodes[noteNumber];
-        }
 
-        let updatedVolume = noteVelocity/100.0 * volumeRatio;
+          const noteLength = Math.abs(event.tick - offTime);
+
+          let pointY = linePx;
+          if (scrollUp) {
+            pointY = linePx - noteLength;
+          }
+
+          let noteRect = document.createElement("div");
+          if (event.track <= 3) {
+            noteRect.classList.add('music-hole');
+          } else {
+            noteRect.classList.add('control-hole')
+          }
+
+          let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, holeWidth, noteLength);
+
+          openSeadragon.viewport.viewer.addOverlay(noteRect, rectViewport);
+
+          if (holeOverlays[offTime] === undefined) {
+            holeOverlays[offTime] = [noteRect];
+          } else {
+            holeOverlays[offTime].push(noteRect);
+          }
+        }
+      }
+
+      if (event.track <= 3) {
+        let noteVelocity = playComputedExpressions ? event.velocity : DEFAULT_NOTE_VELOCITY;
+
+        let updatedVolume = (noteVelocity / 128.0) * volumeRatio;
         if (softPedalOn) {
-          updatedVolume *= SOFT_PEDAL_RATIO;
+          if (pedalTempoModOn) {
+            updatedVolume *= SOFT_PEDAL_RATIO + ((1 - SOFT_PEDAL_RATIO) * pedalTempoModDelta);
+          } else {
+            updatedVolume *= SOFT_PEDAL_RATIO;
+          }
         }
         if (parseInt(noteNumber) < panBoundary) {
           updatedVolume *= leftVolumeRatio;
         } else if (parseInt(noteNumber) >= panBoundary) {
           updatedVolume *= rightVolumeRatio;
         }
-
-        try {
-          adsr = [adsr['attack'], adsr['decay'], adsr['sustain'], adsr['release']];
-          
-          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume /*, adsr */ });
-          activeAudioNodes[noteNumber] = noteNode;
-        } catch(error) {
-          // Get rid of this eventually
-          console.log("NOTE PLAY ERROR",error);
-          adsr = [ADSR_SAMPLE_DEFAULTS['attack'], ADSR_SAMPLE_DEFAULTS['decay'], ADSR_SAMPLE_DEFAULTS['sustain'], ADSR_SAMPLE_DEFAULTS['release']];
-          let noteNode = instrument.play(noteNumber, ac.currentTime, { gain: updatedVolume, adsr });
-          activeAudioNodes[noteNumber] = noteNode;
-        }
-        if (sustainPedalOn && !sustainedNotes.includes(noteNumber)) {
-          sustainedNotes.push(noteNumber);
-        }
+        //console.log("ON", getNoteName(noteNumber), noteVelocity);
+        startNote(noteNumber, updatedVolume);
 
         if (!activeNotes.includes(noteNumber)) {
           activeNotes.push(parseInt(noteNumber));
         }
-
-        keyboard.activeNotes.add(noteNumber);
-
-        keyboardToggleKey(noteNumber, true);
-      }
-    } else if (event.name === "Controller Change") {
-      // Controller Change number=64 is a sustain pedal event;
-      // 127 is down (on), 0 is up (off)
-      if ((event.number == 64) && !sustainPedalLocked) {
-        if (event.value == 127) {
-          pressSustainPedal();
-        } else if (event.value == 0) {
-          releaseSustainPedal();
-        }
-      // 67 is the soft (una corda) pedal
-      } else if (event.number == 67 && !softPedalLocked) {
-        if (event.value == 127) {
-		  softPedalOn = true;
-		  document.getElementById("softPedal").classList.add("pressed");
-        } else if (event.value == 0) {
-		  softPedalOn = false;
-		  document.getElementById("softPedal").classList.remove("pressed");
-        }
-      } else if (event.number == 10) {
-        // Controller Change number=10 sets the "panning position",
-        // which is supposed to divide the keyboard into portions,
-        // presumably bass and treble. These values are a bit odd
-        // however and it's not clear how to use them, e.g.,
-        // track 2: value = 52, track 3: value = 76
-        panBoundary = event.value;
-      }
-    } else if (event.name === "Set Tempo") {
-
-      tempoRatio = 1 + (parseFloat(event.data) - parseFloat(baseTempo)) / parseFloat(baseTempo);
-	  playbackTempo = parseFloat(sliderTempo) * tempoRatio;
-	  
-	  console.log("SETTING PLAYBACK TEMPO TO", playbackTempo)
-
-      samplePlayer.setTempo(playbackTempo);
-      if (scorePlayer) {
-        scorePlayer.setTempo(playbackTempo);
       }
     }
-
-    // The scrollTimer should ensure that the roll is synchronized with
-    // playback; syncing at every note effect also can cause problems
-    // on certain browsers if the playback events start to lag behind
-    // their scheduled times.
-    //panViewportToTick(event.tick);
-
-}
-
-const playPausePlayback = function() {
-
-    if (scorePlaying) {
-      return;
-    }
-
-    if (samplePlayer.isPlaying()) {
-      samplePlayer.pause();
-	  clearInterval(scrollTimer);
-	  playState = "paused";
-	  scrollTimer = null;
-    } else {
-      openSeadragon.viewport.zoomTo(HOME_ZOOM);
-	    activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	    playState = "playing";
-	    // XXX Consider setting a timer to recycle AudioContext and sample player
-	    // periodically to avoid Firefox fuzzout issue. This likely would case a
-	    // noticeable skip during playback when it happens, though. 
-	    if (ac) {
-		    ac.close();
-	    }
-	    ac = new AudioContext();
-	    Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-		    instrument = inst;
-		    scrollTimer = setInterval(panViewportToTick, UPDATE_INTERVAL_MS);
-		    samplePlayer.play();
-	    });
-    }
-}
-
-const stopPlayback = function() {
-    if (samplePlayer.isPlaying() || (playState === "paused")) {
-
-      samplePlayer.stop();
-	  clearInterval(scrollTimer);
-	  
-	  ac.close().then(function () {
-			activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-			playState = "stopped";
-			scrollTimer = null;
-			activeAudioNodes = {};
-			activeNotes = [];
-      releaseSustainPedal();
-      softPedalOn = false;
-      document.getElementById("softPedal").classList.remove("pressed");
-  
-		  ac = null;
-		  instrument = null;
-	  });
-
-    }
-}
-
-const updateProgress = function() {
-
-    if (totalTicks > 0) {
-		currentProgress = parseFloat(currentTick) / parseFloat(totalTicks);
-	}
-
-	document.getElementById('progressSlider').value = currentProgress;
-	document.getElementById('progressPct').innerText = (currentProgress * 100.).toFixed(2)+"%"
-}
-
-const skipTo = function(targetTick, targetProgress) {
-    if (!(samplePlayer || scorePlayer)) {
-      return;
-	  }
-	
-    let playTick = Math.max(0, targetTick);
-    let playProgress = Math.max(0, targetProgress);
-
-    if (scorePlayer && scorePlaying) {
-      scorePlayer.pause();
-      scorePlayer.skipToTick(playTick);
-      activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-      activeAudioNodes = {};
-      activeNotes = [];
-      sustainedNotes = [];
-      currentProgress = playProgress;
-      scorePlayer.play();
-      updateProgress();
-        return;
-    }
-
-    const pedalsOn = pedalMap.search(playTick, playTick);
-
-    sustainPedalOn = sustainPedalLocked || pedalsOn.includes("sustain");
-    softPedalOn = softPedalLocked || pedalsOn.includes("soft");
-
-    if (samplePlayer.isPlaying()) {
-      samplePlayer.pause();
-      samplePlayer.skipToTick(playTick);
-      activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-      activeAudioNodes = {};
-      activeNotes = [];
-      sustainedNotes = [];
-      currentProgress = playProgress;
-      samplePlayer.play();
-    } else {
-      samplePlayer.skipToTick(playTick);
-      //panViewportToTick(targetTick);
-	}
-	updateProgress();
-}
-
-const skipToPixel = function(yPixel) {
-
-    if (scorePlaying) {
-      return;
-    }
-
-    let targetTick = yPixel - firstHolePx;
-    if (scrollUp) {
-      targetTick = firstHolePx - yPixel;
-    }
-
-    const targetProgress = parseFloat(targetTick) / parseFloat(totalTicks);
-
-    skipTo(targetTick, targetProgress)
-}
-
-const skipToProgress = function(event) {
-	const targetProgress = event.target.value;
-	
-	const targetTick = parseInt(parseFloat(targetProgress) * parseFloat(totalTicks));
-
-    skipTo(targetTick, targetProgress);
-}
-
-const panViewportToTick = function(tick) {
-    /* PAN VIEWPORT IMAGE */
-
-    // If this is fired from the scrollTimer event (quite likely) the tick
-    // argument will be undefined, so we get it from the player itself.
-    if ((typeof(tick) === 'undefined') || isNaN(tick) || (tick === null)) {
-      tick = samplePlayer.getCurrentTick();
-    }
-
-	  let viewportBounds = openSeadragon.viewport.getBounds();
-
-    // Thanks to Craig, MIDI tick numbers correspond to pixels from the first
-    // hole of the roll.
-
-    let linePx = firstHolePx + tick;
-    if (scrollUp) {
-      linePx = firstHolePx - tick;
-    }
-
-    let lineViewport = openSeadragon.viewport.imageToViewportCoordinates(0,linePx);
-
-    let lineCenter = new OpenSeadragon.Point(viewportBounds.width / 2.0, lineViewport.y);
-    openSeadragon.viewport.panTo(lineCenter);
-
-    let targetProgress = parseFloat(tick) / totalTicks;
-    let playProgress = Math.max(0, targetProgress);
-	let playTick = Math.max(0, tick);
-	
-	currentTick = playTick;
-	currentProgress = playProgress;
-
-	updateProgress();
-
-}
-
-const pressSustainPedal = function() {
-    if (sustainPedalOn) {
-      releaseSustainPedal();
-      sustainedNotes = [];
-    }
-    activeNotes.forEach((noteNumber) => {
-      if (!sustainedNotes.includes(noteNumber)) {
-        sustainedNotes.push(noteNumber)
-      }
-	});
-	//console.log("SUSTAIN ON");
-	sustainPedalOn = true;
-	document.getElementById("sustainPedal").classList.add("pressed");
-}
-
-const releaseSustainPedal = function() {
-    sustainedNotes.forEach((noteNumber) => {
-      if (!(activeNotes.includes(parseInt(noteNumber)))) {
-        // XXX Maybe use a slower release velocity for pedal events?
-        //console.log("NOTE OFF AT SUSTAIN PEDAL RELEASE",noteNumber,getNoteName(noteNumber));
-        try {
-          activeAudioNodes[noteNumber].stop();
-        } catch {
-          console.log("FAILED TO UNSUSTAIN",noteNumber);
-        }
-        delete activeAudioNodes[noteNumber];
-      }
-	});
-	sustainPedalOn = false;
-	//console.log("SUSTAIN OFF");
-	sustainedNotes = [];
-	document.getElementById("sustainPedal").classList.remove("pressed");
-}
-
-function togglePedalLock(event) {
-    const pedalName = event.target.name;
-    if (pedalName === "sustain") {
-      if (sustainPedalLocked) {
-		// Release sustained notes
-		sustainPedalLocked = false;
-        releaseSustainPedal();
-      } else {
-		sustainPedalLocked = true;
+  } else if (event.name === "Controller Change") {
+    // Controller Change number=64 is a sustain pedal event;
+    // 127 is down (on), 0 is up (off)
+    if (event.number == 64 && !sustainPedalLocked && useRollPedaling) {
+      if (event.value == 127) {
         pressSustainPedal();
+      } else if (event.value == 0) {
+        releaseSustainPedal();
       }
-    } else if (pedalName === "soft") {
-        softPedalLocked = !softPedalLocked;
-        softPedalOn = softPedalLocked;
-      if (softPedalOn) {
+      // 67 is the soft (una corda) pedal
+    } else if (event.number == 67 && !softPedalLocked && useRollPedaling) {
+      if (event.value == 127) {
+        //console.log("SOFT ON");
+        softPedalOn = true;
         document.getElementById("softPedal").classList.add("pressed");
-      } else {
+      } else if (event.value == 0) {
+        //console.log("SOFT OFF");
+        softPedalOn = false;
         document.getElementById("softPedal").classList.remove("pressed");
       }
+    } else if (event.number == 10) {
+      // Controller Change number=10 sets the "panning position",
+      // which is supposed to divide the keyboard into portions,
+      // presumably bass and treble. These values are a bit odd
+      // however and it's not clear how to use them, e.g.,
+      // track 2: value = 52, track 3: value = 76
+      //panBoundary = event.value;
     }
+  } else if (event.name === "Set Tempo") {
+    midiTempo = parseFloat(event.data);
+    if (useMidiTempos) {
+      applyTempoChange(midiTempo);
+    } /*else {
+      applyTempoChange(baseTempo);
+    }*/
+  }
+
+  // The scrollTimer should ensure that the roll is synchronized with
+  // playback; syncing at every note effect also can cause problems
+  // on certain browsers if the playback events start to lag behind
+  // their scheduled times.
+  //panViewportToTick(event.tick);
+
+  currentTick = event.tick;
+  if (!showRoll) {
+    updateProgress();
+  }
+
+};
+
+const applyTempoChange = function(inputTempo) {
+  tempoRatio =
+    1.0 +
+    (inputTempo - baseTempo) / baseTempo;
+  playbackTempo = sliderTempo * tempoRatio;
+
+  if (scorePlayer && scorePlaying) {
+    scorePlayer.pause();
+    scorePlayer.setTempo(playbackTempo);
+    scorePlayer.play();
+  }
+
+  if (samplePlayer.isPlaying()) {
+    samplePlayer.pause();
+    samplePlayer.setTempo(playbackTempo);
+    samplePlayer.play();
+  } else {
+    samplePlayer.setTempo(playbackTempo);
+  }
+
 }
 
-const keyboardToggleKey = function(noteNumber, onIfTrue) {
+const toggleMidiTempos = function(event) {
+  useMidiTempos = event.target.checked;
+  if (!useMidiTempos) {
+    // XXX This only works as long as the only the
+    // tempo changes are always on track 1
+    samplePlayer.disableTrack(1);
+    applyTempoChange(baseTempo);
+  } else {
+    samplePlayer.enableTrack(1);
+    const thisTick = samplePlayer.getCurrentTick();
+    midiTempo = tempoMap.search(thisTick, thisTick)[0];
+    applyTempoChange(midiTempo);
+  }
+}
 
-    let keyElt = document.querySelector('div[data-key="' + (parseInt(noteNumber)-20).toString() + '"]');
-    if (keyElt === null) {
-      console.log("TRIED TO PLAY NONEXISTENT KEY:",noteNumber);
+const playPausePlayback = function () {
+  if (scorePlaying) {
+    return;
+  }
+
+  if (samplePlayer.isPlaying()) {
+    // Pause
+    console.log("PAUSING");
+    samplePlayer.pause();
+    clearScrollTimer();
+    playState = "paused";
+  } else {
+    // Play
+    if (showRoll) {
+    openSeadragon.viewport.zoomTo(HOME_ZOOM);
+      if (playState == "stopped") {
+        // If we want this behavior (not panning back to the beginning
+        // after a stop until the Play button is pressed), note that it
+        // may be the case that sometimes the first note or two is lost
+        // during the scrollback. The foolproof solution would be to
+        // use an event listener to wait until the scroll is completed
+        // before starting playback, but maybe it's not necessary...
+        panViewportToTick(0);
+      }
+    }
+    activeNotes.forEach((noteNumber) => {
+      keyboardToggleKey(noteNumber, false);
+    });
+    activeNotes = [];
+    playState = "playing";
+
+    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
+    samplePlayer.play();
+  }
+};
+
+const stopPlayback = function () {
+  if (samplePlayer.isPlaying() || playState === "paused") {
+    samplePlayer.stop();
+    clearScrollTimer();
+    activeNotes.forEach((noteNumber) => {
+      keyboardToggleKey(noteNumber, false);
+    });
+    playState = "stopped";
+    activeNotes = [];
+    releaseSustainPedal();
+    softPedalOn = false;
+    document.getElementById("softPedal").classList.remove("pressed");
+    if (showRoll) {
+      clearOverlays(samplePlayer.getCurrentTick(), true);
+    }
+  }
+};
+
+const playerProgress = function () {
+  if (samplePlayer && samplePlayer.isPlaying()) {
+    currentTick = samplePlayer.getCurrentTick();
+    if (showRoll) {
+      panViewportToTick(currentTick);
       return;
     }
-    if (onIfTrue) {
-      keyElt.classList.add("piano-keyboard-key-active");
-    } else {
-      keyElt.classList.remove("piano-keyboard-key-active");
-    }
+  } else if (scorePlayer && scorePlaying) {
+    currentTick = scorePlayer.getCurrentTick();
+  }
+  updateProgress();
 }
+
+const updateProgress = function () {
+  if (totalTicks > 0) {
+    currentProgress = Math.min(
+      1.0,
+      parseFloat(currentTick) / parseFloat(totalTicks)
+    );
+  }
+
+  document.getElementById("progressSlider").value = currentProgress;
+  document.getElementById("progressPct").innerText =
+    (currentProgress * 100.0).toFixed(2) + "%";
+};
+
+const skipTo = function (targetTick, targetProgress) {
+  if (!(samplePlayer || scorePlayer)) {
+    return;
+  }
+
+  currentTick = Math.max(0, targetTick);
+  let playProgress = Math.max(0, targetProgress);
+
+  if (useMidiTempos) {
+    const currentTempo = tempoMap.search(currentTick, currentTick)[0];
+    applyTempoChange(currentTempo);
+  }
+
+  if (scorePlayer && scorePlaying) {
+    scorePlayer.pause();
+    scorePlayer.skipToTick(currentTick);
+    activeNotes.forEach((noteNumber) => {
+      keyboardToggleKey(noteNumber, false);
+    });
+    activeNotes = [];
+    currentProgress = playProgress;
+    scorePlayer.play();
+    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
+    updateProgress();
+
+    return;
+  }
+
+  const pedalsOn = pedalMap.search(currentTick, currentTick);
+
+  sustainPedalOn = sustainPedalLocked || pedalsOn.includes("sustain");
+  softPedalOn = softPedalLocked || pedalsOn.includes("soft");
+
+  if (samplePlayer.isPlaying()) {
+    samplePlayer.pause();
+    samplePlayer.skipToTick(currentTick);
+    activeNotes.forEach((noteNumber) => {
+      keyboardToggleKey(noteNumber, false);
+    });
+    activeNotes = [];
+    currentProgress = playProgress;
+    samplePlayer.play();
+  } else {
+    samplePlayer.skipToTick(currentTick);
+  }
+  updateProgress();
+};
+
+const skipToPixel = function (yPixel) {
+  if (scorePlaying) {
+    return;
+  }
+
+  let targetTick = yPixel - firstHolePx;
+  if (scrollUp) {
+    targetTick = firstHolePx - yPixel;
+  }
+
+  const targetProgress = parseFloat(targetTick) / parseFloat(totalTicks);
+
+  skipTo(targetTick, targetProgress);
+};
+
+const skipToProgress = function (event) {
+  const targetProgress = event.target.value;
+
+  const targetTick = parseInt(
+    parseFloat(targetProgress) * parseFloat(totalTicks)
+  );
+
+  skipTo(targetTick, targetProgress);
+  panViewportToTick(targetTick);
+};
+
+const panViewportToTick = function (tick) {
+  /* PAN VIEWPORT IMAGE */
+
+  if (!showRoll) {
+    return;
+  }
+
+  // If this is fired from the scrollTimer event (quite likely) the tick
+  // argument will be undefined, so we get it from the player itself.
+  if (typeof tick === "undefined" || isNaN(tick) || tick === null) {
+    tick = samplePlayer.getCurrentTick();
+  }
+
+  let viewportBounds = openSeadragon.viewport.getBounds();
+
+  // Thanks to Craig, MIDI tick numbers correspond to pixels from the first
+  // hole of the roll.
+
+  let linePx = firstHolePx + tick;
+  if (scrollUp) {
+    linePx = firstHolePx - tick;
+  }
+
+  let lineViewport = openSeadragon.viewport.imageToViewportCoordinates(
+    0,
+    linePx
+  );
+
+  let lineCenter = new OpenSeadragon.Point(
+    viewportBounds.width / 2.0,
+    lineViewport.y
+  );
+
+  let targetProgress = parseFloat(tick) / parseFloat(totalTicks);
+  let playProgress = Math.max(0, targetProgress);
+  currentTick = Math.max(0, tick);
+
+  currentProgress = playProgress;
+
+  updateProgress();
+
+  openSeadragon.viewport.panTo(lineCenter);
+
+};
+
+const pressSustainPedal = function (pedalInput) {
+  if (pedalInput !== undefined) {
+    if (!(pedalInput instanceof KeyboardEvent)) {
+      sustainLevel = pedalInput;
+    } else {
+      if (pedalInput.type == "keydown") {
+        if (pedalInput.code == SUSTAIN_LESS_KEY) {
+          if (pedalInput.shiftKey) {
+            sustainLevel = Math.max(0, sustainLevel - 1);
+          } else {
+            sustainLevel = Math.max(0, sustainLevel - SUSTAIN_LEVEL_DELTA);
+          }
+        } else if (pedalInput.code == SUSTAIN_MORE_KEY) {
+          if (pedalInput.shiftKey) {
+            sustainLevel = Math.min(127, sustainLevel + 1);
+          } else {
+            sustainLevel = Math.min(127, sustainLevel + SUSTAIN_LEVEL_DELTA);
+          }
+        }
+      }
+    }
+
+    if (sustainLevel == 0) {
+      releaseSustainPedal();
+      return;
+    } else {
+      document.getElementById("sustainLevel").value = sustainLevel;
+      document.getElementById("sustainLevelSlider").value = sustainLevel;
+    }
+  }
+  
+  // XXX how to accommodate changes in pedaling levels between on and off?
+  //if (sustainPedalOn) {
+  //  releaseSustainPedal();
+  //}
+  //console.log("SUSTAIN ON");
+  if (!sustainPedalOn) {
+    piano.pedalDown();
+    //piano.pedalDown(parseFloat(sustainLevel) / 127.0);
+  }
+  sustainPedalOn = true;
+  document.getElementById("sustainPedal").classList.add("pressed");
+};
+
+const releaseSustainPedal = function () {
+  piano.pedalUp();
+  sustainPedalOn = false;
+  //console.log("SUSTAIN OFF");
+  document.getElementById("sustainPedal").classList.remove("pressed");
+};
+
+function togglePedalLock(event) {
+  const pedalName = event.target.name;
+  if (pedalName === "sustain") {
+    if (sustainPedalLocked) {
+      // Release sustained notes
+      sustainPedalLocked = false;
+      releaseSustainPedal();
+    } else {
+      sustainPedalLocked = true;
+      pressSustainPedal();
+    }
+  } else if (pedalName === "soft") {
+    softPedalLocked = !softPedalLocked;
+    softPedalOn = softPedalLocked;
+    if (softPedalOn) {
+      //console.log("SOFT ON");
+      document.getElementById("softPedal").classList.add("pressed");
+    } else {
+      //console.log("SOFT OFF");
+      document.getElementById("softPedal").classList.remove("pressed");
+    }
+  }
+}
+
+const keyboardToggleKey = function (noteNumber, onIfTrue) {
+  let keyElt = document.querySelector(
+    'div[data-key="' + (parseInt(noteNumber) - 20).toString() + '"]'
+  );
+  if (keyElt === null) {
+    console.log("TRIED TO (UN)HIGHLIGHT NONEXISTENT KEY:", noteNumber);
+    return;
+  }
+  if (onIfTrue && !keyElt.classList.contains("piano-keyboard-key-active")) {
+    keyElt.classList.add("piano-keyboard-key-active");
+  } else if (
+    !onIfTrue &&
+    keyElt.classList.contains("piano-keyboard-key-active")
+  ) {
+    keyElt.classList.remove("piano-keyboard-key-active");
+  }
+};
 
 // This is for playing notes manually pressed (clicked) on the keyboard
-const midiNotePlayer = function(noteNumber, onIfTrue /*, prevActiveNotes*/) {
-
-	if (!ac || !instrument) {
-	  ac = new AudioContext();
-	  Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-		instrument = inst;
-		midiNotePlayer(noteNumber, onIfTrue);
-	  });
-	  return;
-	}
-
-    if (onIfTrue) {
-      let updatedVolume = DEFAULT_NOTE_VELOCITY/100.0 * volumeRatio;
-      if (softPedalOn) {
+const midiNotePlayer = function (noteNumber, onIfTrue, velocity) {
+  if (!velocity) {
+    velocity = DEFAULT_NOTE_VELOCITY;
+  }
+  if (onIfTrue) {
+    let updatedVolume = (velocity / 128.0) * volumeRatio;
+    if (softPedalOn) {
+      if (pedalTempoModOn) {
+        updatedVolume *= SOFT_PEDAL_RATIO + ((1 - SOFT_PEDAL_RATIO) * PEDAL_TEMPO_MOD_DELTA);
+      } else {
         updatedVolume *= SOFT_PEDAL_RATIO;
       }
-      if (parseInt(noteNumber) < HALF_BOUNDARY) {
-        updatedVolume *= leftVolumeRatio;
-      } else if (parseInt(noteNumber) >= HALF_BOUNDARY) {
-        updatedVolume *= rightVolumeRatio;
-      }
-      if (noteNumber in activeAudioNodes) {
-        try {
-          activeAudioNodes[noteNumber].stop();
-        } catch {
-          console.log("Keyboard tried and failed to stop playing note to replace it",noteNumber);
-        }
-      }
-      if (sustainPedalOn && !sustainedNotes.includes(noteNumber)) {
-		sustainedNotes.push(noteNumber);
-      }
-	  const audioNode = instrument.play(noteNumber, ac.currentTime, {gain: updatedVolume});
-	  activeAudioNodes[noteNumber] = audioNode;
-    } else {
-        if (!activeAudioNodes[noteNumber] || (sustainPedalOn && sustainedNotes.includes(noteNumber))) {
-          return;
-        }
-        const audioNode = activeAudioNodes[noteNumber];
-		audioNode.stop();
-		delete activeAudioNodes[noteNumber];
     }
-}
-
-const updateTempoSlider = function(event) {
-
-    playbackTempo = event.target.value * tempoRatio;
-
-    if (scorePlayer && scorePlaying) {
-      scorePlayer.pause();
-      scorePlayer.setTempo(playbackTempo);
-	  scorePlayer.play();
-	  sliderTempo = event.target.value;
-      return;
+    if (parseInt(noteNumber) < HALF_BOUNDARY) {
+      updatedVolume *= leftVolumeRatio;
+    } else if (parseInt(noteNumber) >= HALF_BOUNDARY) {
+      updatedVolume *= rightVolumeRatio;
     }
+    startNote(noteNumber, updatedVolume);
+  } else {
+    stopNote(noteNumber);
+  }
+};
 
-    // If not paused during tempo change, player jumps back a bit on
-    // shift to slower playback tempo, forward on shift to faster tempo.
-	// So we pause it.
+const updateTempoSlider = function (event) {
 
-	if (samplePlayer.isPlaying()) {
-	  samplePlayer.pause();
-      samplePlayer.setTempo(playbackTempo);
-	  samplePlayer.play();
-	} else {
-	  samplePlayer.setTempo(playbackTempo);
-	}
+  if (event.type == "change") {
+    sliderTempo = event.target.value;  
+  } else if (event.type == "keydown") {
+    if (event.code == TEMPO_FASTER_KEY) {
+      sliderTempo = Math.min(180, sliderTempo + (TEMPO_KEY_DELTA * pedalTempoModDelta));
+    } else if (event.code == TEMPO_SLOWER_KEY) {
+      sliderTempo = Math.max(0, sliderTempo - (TEMPO_KEY_DELTA * pedalTempoModDelta));
+    }
+    document.getElementById("tempoSlider").value = sliderTempo;
+  } else {
+    return;
+  }
 
-	sliderTempo = event.target.value;
+  document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 
-	document.getElementById("tempo").innerText = sliderTempo + " bpm";
-}
+  playbackTempo = sliderTempo * tempoRatio;
 
-const updateVolumeSlider = function(event) {
+  if (scorePlayer && scorePlaying) {
+    scorePlayer.pause();
+    scorePlayer.setTempo(playbackTempo);
+    scorePlayer.play();
+  }
 
-	let sliderName = event.target.name;
+  // If not paused during tempo change, player jumps back a bit on
+  // shift to slower playback tempo, forward on shift to faster tempo.
+  // So we pause it.
+
+  if (samplePlayer.isPlaying()) {
+    samplePlayer.pause();
+    samplePlayer.setTempo(playbackTempo);
+    samplePlayer.play();
+  } else {
+    samplePlayer.setTempo(playbackTempo);
+  }
+
+};
+
+const updateVolumeSlider = function (event) {
+
+  let sliderName = "volume";
+
+  // At present, only the main volume is key-mapped
+  if (event.type == "keydown") {
+    if (event.code == VOLUME_UP_KEY) {
+      volumeRatio = Math.min(4, volumeRatio + (VOLUME_KEY_DELTA * volAccentModDelta));
+    } else if (event.code == VOLUME_DOWN_KEY) {
+      volumeRatio = Math.max(0, volumeRatio - (VOLUME_KEY_DELTA * volAccentModDelta));
+    }
+    volumeRatio = Math.round(10*volumeRatio)/10; 
+    document.getElementById("masterVolume").value = volumeRatio;
+    document.getElementById("masterVolumeSlider").value = volumeRatio;
+  } else {
+    sliderName = event.target.name;
 
     if (sliderName === "volume") {
-		volumeRatio = event.target.value;
-	} else if (sliderName === "leftVolume") {
-		leftVolumeRatio = event.target.value;
-	} else if (sliderName === "rightVolume") {
-		rightVolumeRatio = event.target.value;
-	}
+      volumeRatio = event.target.value;
+      document.getElementById("masterVolume").value = volumeRatio;
+    } else if (sliderName === "leftVolume") {
+      leftVolumeRatio = event.target.value;
+      document.getElementById("leftVolume").value = leftVolumeRatio;
+    } else if (sliderName === "rightVolume") {
+      rightVolumeRatio = event.target.value;
+      document.getElementById("rightVolume").value = rightVolumeRatio;
+    }
+  }
+};
 
+const updateSustainLevel = function (event) {
+  sustainLevel = event.target.value;
+  document.getElementById("sustainLevel").value = sustainLevel;
 }
 
-const changeInstrument = function(e) {
-    const newInstName = e.target.value;
-
-    // XXX This mostly works, except that when switching back to the
-    // acoustic_grand_piano, the bright_acoustic_piano plays instead.
-    // Possibly this problem is rooted in how the soundfonts are
-    // defined, i.e., if the bright_acoustic is just a modification of
-    // the samples in acoustic_grand, the system may erroneously
-	// assume they're the same...
-	if (ac) {
-		ac.close().then(() => {
-			ac = new AudioContext();
-			Soundfont.instrument(ac, newInstName, { soundfont: 'FluidR3_GM' }).then(
-				(inst) => {
-					instrument = inst;
-					sampleInst = newInstName;
-				});
-		});
-	} else {
-		ac = new AudioContext();
-		Soundfont.instrument(ac, newInstName, { soundfont: 'FluidR3_GM' }).then(
-			(inst) => {
-				instrument = inst;
-				sampleInst = newInstName;
-			});
-	}
+// XXX Ugh manual styling -- just for prototyping
+const toggleAccent = function (event) {
+  switch(event.type) {
+    case "mousedown":
+      accentOn = true;
+      document.getElementById("accentButton").style.backgroundColor = "red";
+      break;
+    case "mouseover":
+      document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
+      break;
+    case "mouseup":
+      accentOn = false;
+      document.getElementById("accentButton").style.backgroundColor = "cornflowerblue";
+      break;
+    case "mouseout":
+      accentOn = false;
+      document.getElementById("accentButton").style.backgroundColor = "white";
+      break;
+    case "keydown":
+      accentOn = true;
+      document.getElementById("accentButton").style.backgroundColor = "red";
+      break;
+    case "keyup":
+      accentOn = false;
+      document.getElementById("accentButton").style.backgroundColor = "white";
+      break;
+  }
 }
 
-const scorePlayback = function(e) {
+const toggleExpressions = function (event) {
+  playComputedExpressions = event.target.checked;
+};
 
+const toggleRollPedaling = function (event) {
+  useRollPedaling = event.target.checked;
+  if (!useRollPedaling) {
+    releaseSustainPedal();
+    softPedalOn = false;
+    document.getElementById("softPedal").classList.remove("pressed");
+  }
+}
+
+const toggleRoll = function (event) {
+  showRoll = event.target.checked;
+  if (showRoll) {
+    samplePlayer.stop();
+    samplePlayer = null;
+    let osdLair = document.createElement("div");
+    osdLair.setAttribute("name", "osdLair");
+    osdLair.classList.add("osdLair");
+    document.getElementById("osdWrapper").appendChild(osdLair);
+    initOSD();
+    initPlayer();
+  } else {
+    openSeadragon.close();
+    openSeadragon = null;
+    document.getElementById("osdWrapper").children[0].remove();
+  }
+}
+
+const clearScrollTimer = function () {
+  if (scrollTimer) {
+    clearInterval(scrollTimer);
+    scrollTimer = null;
+  }
+}
+
+const toggleScore = function (event) {
+  showScore = event.target.checked;
+  if (showScore) {
+    document.getElementById("scoreWrapper").appendChild(scoreStorage);
+    initScorePlayer();
+  } else {
+    if (scorePlayer) {
+      if (scorePlaying) {
+        scorePlayer.stop();
+        scorePlaying = false;
+        clearScrollTimer();
+      }
+    }
+    let scoreNode = document.getElementById("scoreWrapper").children[0];
+    if (scoreNode) {
+      scoreStorage = scoreNode.cloneNode(true);
+      scoreNode.remove();
+    }
+    scorePlayer = null;
+  }
+}
+
+const scorePlayback = function (e) {
   if (scorePlayer === null) {
     return;
   }
 
-	if ((e.target.name === "playScore") && (!scorePlaying) && (!samplePlayer.isPlaying()) && (playState !== "paused")) {
+  if (
+    e.target.name === "playScore" &&
+    !scorePlaying &&
+    !samplePlayer.isPlaying() &&
+    playState !== "paused"
+  ) {
+    activeNotes.forEach((noteNumber) => {
+      keyboardToggleKey(noteNumber, false);
+    });
+    scorePlaying = true;
+    currentScorePage = 1;
+    document.getElementById("scorePage").innerHTML =
+      scorePages[currentScorePage - 1];
+    activeNotes = [];
+    totalTicks = scorePlayer.totalTicks;
+    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
+    scorePlayer.play();
+  } else if (e.target.name === "stopScore" && scorePlaying) {
+    scorePlaying = false;
+    scorePlayer.stop();
+    clearScrollTimer();
 
-		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-		scorePlaying = true;
-		currentScorePage = 1;
-		document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
-		activeNotes = [];
-		totalTicks = scorePlayer.totalTicks;
+    activeNotes.forEach((noteNumber) => {
+      keyboardToggleKey(noteNumber, false);
+    });
 
-		if (!instrument) {
-			ac = new AudioContext();
-			Soundfont.instrument(ac, sampleInst, { soundfont: 'MusyngKite' }).then(function(inst) {
-				instrument = inst;
-				scorePlayer.play();
-			});
-		} else {
-			scorePlayer.play();
-		}
-		
-	} else if ((e.target.name === "stopScore") && (scorePlaying)) {
-		scorePlaying = false;
-		scorePlayer.stop();
-
-		activeNotes.forEach((noteNumber) => {keyboardToggleKey(noteNumber, false)});
-	
-		activeNotes = [];
-		sustainedNotes = [];
-		currentProgress = 0;
+    activeNotes = [];
+    currentProgress = 0;
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
 
-    for (const nodeId in activeAudioNodes) {
-      activeAudioNodes[nodeId].stop();
+    if (highlightedNotes && highlightedNotes.length > 0) {
+      highlightedNotes.forEach((noteId) => {
+        let noteElt = document.getElementById(noteId);
+        if (noteElt) {
+          noteElt.setAttribute("style", "fill: #000");
+        }
+      });
     }
 
-		if (highlightedNotes && highlightedNotes.length > 0) {
-			highlightedNotes.forEach((noteId) => {
-				let noteElt = document.getElementById(noteId);
-				if (noteElt) {
-				noteElt.setAttribute("style", "fill: #000");
-				}
-			});
-    }
-    
     highlightedNotes = [];
 
-		totalTicks = samplePlayer.totalTicks;
-	}
-}
+    //totalTicks = samplePlayer.totalTicks;
+  }
+};
 
-const changeScorePage = function(e) {
-    if (!scorePlayer || scorePlaying) {
-		return;
-	}
-	if ((e.target.name == "prevPage") && (currentScorePage > 1)) {
-		currentScorePage--;
-		document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
-	} else if ((e.target.name == "nextPage") && (currentScorePage < scorePages.length)) {
-		currentScorePage++;
-	    document.getElementById("scorePage").innerHTML = scorePages[currentScorePage-1];
-	}
+const changeScorePage = function (e) {
+  if (!scorePlayer || scorePlaying) {
+    return;
+  }
+  if (e.target.name == "prevPage" && currentScorePage > 1) {
+    currentScorePage--;
+    document.getElementById("scorePage").innerHTML =
+      scorePages[currentScorePage - 1];
+  } else if (
+    e.target.name == "nextPage" &&
+    currentScorePage < scorePages.length
+  ) {
+    currentScorePage++;
+    document.getElementById("scorePage").innerHTML =
+      scorePages[currentScorePage - 1];
+  }
+};
 
-}
+const getNoteName = function (noteNumber) {
+  const octave = parseInt(noteNumber / 12) - 1;
+  noteNumber -= 21;
+  const name = SHARP_NOTES[noteNumber % 12];
+  return name + octave;
+};
 
-const getNoteName = function(noteNumber) {
-    const octave = parseInt(noteNumber / 12) - 1;
-    noteNumber -= 21;
-    const name = SHARP_NOTES[noteNumber % 12];
-    return name + octave;
-}
-
-const getMidiNumber = function(noteName) {
-    let note = "";
-    let octave = 0;
-    for (let i = 0; i < noteName.length; i++) {
-      let c = noteName.charAt(i);
-      if (c >= '0' && c <= '9') {
-        octave = parseInt(c);
-      } else {
-        note += c;
-      }
+const getMidiNumber = function (noteName) {
+  let note = "";
+  let octave = 0;
+  for (let i = 0; i < noteName.length; i++) {
+    let c = noteName.charAt(i);
+    if (c >= "0" && c <= "9") {
+      octave = parseInt(c);
+    } else {
+      note += c;
     }
-    let noteNumber = NaN;
-    if (SHARP_NOTES.includes(note)) {
-      noteNumber = ((octave - 1) * 12) + SHARP_NOTES.indexOf(note) + 21; 
-    } else if (FLAT_NOTES.includes(note)) {
-      noteNumber = ((octave -1) * 12) + FLAT_NOTES.indexOf(note) + 21; 
+  }
+  let noteNumber = NaN;
+  if (SHARP_NOTES.includes(note)) {
+    noteNumber = (octave - 1) * 12 + SHARP_NOTES.indexOf(note) + 21;
+  } else if (FLAT_NOTES.includes(note)) {
+    noteNumber = (octave - 1) * 12 + FLAT_NOTES.indexOf(note) + 21;
+  }
+  return noteNumber;
+};
+
+const initOSD = function() {
+
+  if (!showRoll) {
+    if (document.getElementById("osdWrapper").hasChildNodes()) {
+      document.getElementById("osdWrapper").children[0].remove();
     }
-    return noteNumber;    
+    return;
+  }
+
+  document.getElementsByName("osdLair")[0].id = viewerId;
+
+  openSeadragon = new OpenSeadragon({
+    id: viewerId,
+    showNavigationControl: false,
+    panHorizontal: false,
+    visibilityRatio: 1,
+    defaultZoomLevel: HOME_ZOOM,
+    minZoomLevel: 0.01,
+    maxZoomLevel: 4,
+  });
+
+  openSeadragon.addHandler("canvas-drag", () => {
+    let center = openSeadragon.viewport.getCenter();
+    let centerCoords = openSeadragon.viewport.viewportToImageCoordinates(center);
+    skipToPixel(centerCoords.y);
+  });
+
 }
 
 /* INIT */
 
-document.getElementsByName('osdLair')[0].id = viewerId;
+initOSD();
 
-openSeadragon = new OpenSeadragon({
-	id: viewerId,
-	showNavigationControl: false,
-	panHorizontal: false,
-	visibilityRatio: 1,
-    defaultZoomLevel: HOME_ZOOM,
-    minZoomLevel: .01,
-    maxZoomLevel: 4
-  });
+//let globalPiano = null;
 
-openSeadragon.addHandler("canvas-drag", () => {
-	let center = openSeadragon.viewport.getCenter();
-	let centerCoords = openSeadragon.viewport.viewportToImageCoordinates(center);
-	skipToPixel(centerCoords.y);
+// create the piano and load velocity steps
+let piano = new Piano({
+  // XXX The samples load from the guy's Github site
+  // unless there's a valid URL, and using a
+  // local folder seems problematic...
+  url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
+  //url: '/audio/', // note sure we want to try to bundle these...
+  velocities: DEFAULT_VELOCITIES,
+  release: true,
+  pedal: true,
+  maxPolyphony: 64,
+}).toDestination();
+
+let loadPiano = piano.load();
+Promise.all([loadPiano]).then(() => {
+  console.log("Piano loaded");
+  document.getElementById("playPause").disabled = false;
+  //document.getElementById("playScorePage").disabled = false;
+  //globalPiano = piano;
 });
 
-let keyboard_elt = document.querySelector('.keyboard');
+let keyboard_elt = document.querySelector(".keyboard");
 
 keyboard = new Keyboard({
-	element: keyboard_elt,
-	range: ['a0', 'c8'],
-	a11y: false
+  element: keyboard_elt,
+  range: ["a0", "c8"],
+  a11y: false,
 });
 
-keyboard.on('noteOn', function ({which, volume, target}) {
-				midiNotePlayer(which+20, true)})
-			.on('noteOff', function ({which, volume, target}) {
-				midiNotePlayer(which+20, false)});
+keyboard
+  .on("noteOn", function ({ which, volume, target }) {
+    midiNotePlayer(which + 20, true);
+  })
+  .on("noteOff", function ({ which, volume, target }) {
+    midiNotePlayer(which + 20, false);
+  });
 
-let instChooser = document.getElementById("sampleInstrument");
-instChooser.value = sampleInst;
-instChooser.onchange = changeInstrument;
+/*
+
+document.querySelectorAll("input.samplevol").forEach((input) => {
+  piano[input.name].value = parseInt(input.value, 10);
+  document.getElementById(input.name).value = parseInt(input.value, 10);
+  input.addEventListener("input", (e) => {
+    document.getElementById(e.target.name).value = parseInt(e.target.value, 10);
+    piano[e.target.name].value = parseInt(e.target.value, 10);
+  });
+});
+
+document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
+
+document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
+  document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
+
+  if (playState === "playing") {
+    playPausePlayback();
+  }
+
+  document.getElementById("playPause").disabled = true;
+  document.getElementById("playScorePage").disabled = true;
+  document.getElementById("stop").disabled = true;
+  document.getElementById("stopScorePage").disabled = true;
+  globalPiano.dispose();
+
+  piano = new Piano({
+    // XXX The samples load from the guy's Github site
+    // unless there's a valid URL, and using a
+    // local folder seems problematic...
+    url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
+    //url: '/audio/', // note sure we want to try to bundle these...
+    velocities: parseInt(e.target.value),
+    release: true,
+    pedal: true,
+    maxPolyphony: 64,
+  }).toDestination();
+
+  let loadPiano = piano.load();
+  Promise.all([loadPiano]).then(() => {
+    console.log("Piano reloaded");
+
+    document.querySelectorAll("input.samplevol").forEach((input) => {
+      piano[input.name].value = parseInt(input.value, 10);
+    });
+
+    document.getElementById("playPause").disabled = false;
+    document.getElementById("playScorePage").disabled = false;
+    document.getElementById("stop").disabled = false;
+    document.getElementById("stopScorePage").disabled = false;
+
+    globalPiano = piano;
+    if (playState === "paused") {
+      playPausePlayback();
+    }
+  });
+
+});
+
+*/
 
 let recordingsChooser = document.getElementById("recordings");
 recordingsChooser.onchange = loadRecording;
 for (const recId in recordings_data) {
-	let opt = document.createElement("option");
-	opt.value = recId;
-	opt.text = recordings_data[recId]['title']
-	recordingsChooser.appendChild(opt);
+  let opt = document.createElement("option");
+  opt.value = recId;
+  opt.text = recordings_data[recId]["title"];
+  recordingsChooser.appendChild(opt);
 }
 
 let tempoSlider = document.getElementById("tempoSlider");
@@ -960,34 +1639,210 @@ tempoSlider.value = sliderTempo;
 tempoSlider.onchange = updateTempoSlider;
 
 document.getElementById("masterVolumeSlider").value = volumeRatio;
+document.getElementById("masterVolume").value = volumeRatio;
 document.getElementById("leftVolumeSlider").value = leftVolumeRatio;
-document.getElementById("rightVolumeSlider").value = leftVolumeRatio;
+document.getElementById("leftVolume").value = leftVolumeRatio;
+document.getElementById("rightVolumeSlider").value = rightVolumeRatio;
+document.getElementById("rightVolume").value = rightVolumeRatio;
 
+document.getElementById("sustainLevelSlider").value = sustainLevel;
+document.getElementById("sustainLevel").value = sustainLevel;
 
-verovio.module.onRuntimeInitialized = function() {
+verovio.module.onRuntimeInitialized = function () {
+  ///create the toolkit instance
+  vrvToolkit = new verovio.toolkit();
 
-	///create the toolkit instance
-	vrvToolkit = new verovio.toolkit();
-
-	loadRecording(null, currentRecordingId);
+  loadRecording(null, currentRecordingId);
 };
 
 document.getElementById("masterVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("leftVolumeSlider").onchange = updateVolumeSlider;
 document.getElementById("rightVolumeSlider").onchange = updateVolumeSlider;
 
-document.getElementById("tempo").innerText = sliderTempo + " bpm";
+document.getElementById("sustainLevelSlider").onchange = updateSustainLevel;
 
-document.getElementById('playPause').addEventListener("click", playPausePlayback, false);
-document.getElementById('stop').addEventListener("click", stopPlayback, false);
+document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 
-document.getElementById('sustainPedal').addEventListener("click", togglePedalLock, false);
-document.getElementById('softPedal').addEventListener("click", togglePedalLock, false);
+document
+  .getElementById("playPause")
+  .addEventListener("click", playPausePlayback, false);
+document.getElementById("stop").addEventListener("click", stopPlayback, false);
 
-document.getElementById('progressSlider').addEventListener("input", skipToProgress, false);
+document
+  .getElementById("sustainPedal")
+  .addEventListener("click", togglePedalLock, false);
+document
+  .getElementById("softPedal")
+  .addEventListener("click", togglePedalLock, false);
 
-document.getElementById('prevScorePage').addEventListener("click", changeScorePage, false);
-document.getElementById('nextScorePage').addEventListener("click", changeScorePage, false);
+document
+  .getElementById("progressSlider")
+  .addEventListener("input", skipToProgress, false);
 
-document.getElementById('playScorePage').addEventListener("click", scorePlayback, false);
-document.getElementById('stopScorePage').addEventListener("click", scorePlayback, false);
+document
+  .getElementById("prevScorePage")
+  .addEventListener("click", changeScorePage, false);
+document
+  .getElementById("nextScorePage")
+  .addEventListener("click", changeScorePage, false);
+
+document
+  .getElementById("playScorePage")
+  .addEventListener("click", scorePlayback, false);
+document
+  .getElementById("stopScorePage")
+  .addEventListener("click", scorePlayback, false);
+
+document
+  .getElementById("playExpressions")
+  .addEventListener("click", toggleExpressions, false);
+
+document
+  .getElementById("useRollPedaling")
+  .addEventListener("click", toggleRollPedaling, false);
+
+document
+  .getElementById("useMidiTempos")
+  .addEventListener("click", toggleMidiTempos, false);
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mousedown", toggleAccent, false);
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mouseup", toggleAccent, false);
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mouseover", toggleAccent, false)
+
+document
+  .getElementById("accentButton")
+  .addEventListener("mouseout", toggleAccent, false)
+
+document
+  .getElementById("showRoll")
+  .addEventListener("click", toggleRoll, false);
+
+document
+  .getElementById("showScore")
+  .addEventListener("click", toggleScore, false);
+
+// Keyboard events!
+const keyboardKeyControl = function(event) {
+  switch(event.code) {
+    case PEDAL_TEMPO_MODIFY_KEY:
+      if (event.type == "keydown") {
+        pedalTempoModOn = true;
+        pedalTempoModDelta = PEDAL_TEMPO_MOD_DELTA;
+      } else if (event.type == "keyup") {
+        pedalTempoModOn = false;
+        pedalTempoModDelta = 1;
+      }
+      break;
+    case VOL_ACCENT_MODIFY_KEY:
+      if (event.type == "keydown") {
+        volAccentModDelta = VOL_ACCENT_MOD_DELTA;
+      } else if (event.type == "keyup") {
+        volAccentModDelta = 1;
+      }
+      break;
+    case SUSTAIN_PEDAL_KEY:
+      if (event.type == "keydown") {
+        if (sustainPedalOn) {
+          break;
+        }
+        pressSustainPedal();
+        break;
+      } else if (event.type == "keyup") {
+        if (!sustainPedalOn) {
+          break;
+        }
+        releaseSustainPedal();
+      }
+      break;
+    case SOFT_PEDAL_KEY:
+      if (event.type == "keydown") {
+        if (softPedalOn) {
+          break;
+        }
+        softPedalOn = true;
+        document.getElementById("softPedal").classList.add("pressed");
+      } else {
+        if (!softPedalOn) {
+          break;
+        }
+        softPedalOn = false;
+        document.getElementById("softPedal").classList.remove("pressed");
+      }
+      break;
+    case TEMPO_FASTER_KEY:
+      updateTempoSlider(event);
+      break;
+    case TEMPO_SLOWER_KEY:
+      updateTempoSlider(event);
+      break;
+    case VOLUME_UP_KEY:
+      updateVolumeSlider(event);
+      break;
+    case VOLUME_DOWN_KEY:
+      updateVolumeSlider(event);
+      break;
+    case ACCENT_KEY:
+      toggleAccent(event);
+      break;
+    case SUSTAIN_MORE_KEY:
+      pressSustainPedal(event);
+      break;
+    case SUSTAIN_LESS_KEY:
+      pressSustainPedal(event);
+      break;
+  }
+}
+
+window.addEventListener("keydown", function(event) {
+  keyboardKeyControl(event);
+}, true);
+
+window.addEventListener("keyup", function(event) {
+  keyboardKeyControl(event);
+}, true);
+
+// Check for Web MIDI support, because why not
+if (navigator.requestMIDIAccess) {
+  console.log('This browser supports WebMIDI!');
+  navigator.requestMIDIAccess()
+    .then(function(access) {
+
+      // Get lists of available MIDI controllers
+      //const inputs = access.inputs.values();
+      //const outputs = access.outputs.values();
+
+      Array.from(access.inputs).forEach(input => {
+        input[1].onmidimessage = (msg) => {
+          if (msg.data.length > 1) {
+            // 176 probably = control change; 64 = sustain pedal
+            // SUSTAIN PEDAL MSGS ARE 176, 64, 0-127
+            // KEYPRESS MSGS ARE 144, [MIDI_NUMBER], 0-100?
+            if ((msg.data[0] == 176) && (msg.data[1] == 64)) {
+              pressSustainPedal(parseInt(msg.data[2]));
+            } else if (msg.data[0] == 144) {
+              if (msg.data[2] == 0) {
+                midiNotePlayer(msg.data[1], false);
+              } else {
+                midiNotePlayer(msg.data[1], true, msg.data[2]);
+              }            
+            }
+          }
+        }
+      })
+
+      access.onstatechange = function(e) {
+        // Print information about the (dis)connected MIDI controller
+        console.log(e.port.name, e.port.manufacturer, e.port.state);
+      };
+    });
+} else {
+  console.log('WebMIDI is not supported in this browser.');
+}
