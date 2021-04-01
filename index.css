@@ -111,11 +111,9 @@ h3 {
 	height: 1px;
 }
 
-.music-hole-dot {
+.music-hole {
 	background-color: rgb(224, 8, 232);
-	border-radius: 50%;
-	-webkit-animation: music-hole-glow linear 1s; 
-    animation: music-hole-glow linear 1s;
+	border: 0px;
 } 
 
 @-webkit-keyframes music-hole-glow { 
@@ -130,11 +128,9 @@ h3 {
     100% { background-color:rgb(224, 8, 232) } 
 }
 
-.control-hole-dot {
+.control-hole {
 	background-color: #2edf12;
-	border-radius: 50%;
-	-webkit-animation: control-hole-glow linear 1s infinite; 
-    animation: control-hole-glow linear 1s infinite;
+	border: 0px;
 }
 
 @-webkit-keyframes control-hole-glow { 
