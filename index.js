@@ -1544,6 +1544,7 @@ let loadPiano = piano.load();
 Promise.all([loadPiano]).then(() => {
   console.log("Piano loaded");
   document.getElementById("playPause").disabled = false;
+  keyboard.enable();
   //document.getElementById("playScorePage").disabled = false;
   //globalPiano = piano;
 });
