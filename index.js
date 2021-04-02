@@ -820,7 +820,6 @@ const midiEvent = function (event) {
         } else if (parseInt(noteNumber) >= panBoundary) {
           updatedVolume *= rightVolumeRatio;
         }
-        //console.log("ON", getNoteName(noteNumber), noteVelocity);
         startNote(noteNumber, updatedVolume);
 
         if (!activeNotes.includes(noteNumber)) {
@@ -840,11 +839,9 @@ const midiEvent = function (event) {
       // 67 is the soft (una corda) pedal
     } else if (event.number == 67 && !softPedalLocked && useRollPedaling) {
       if (event.value == 127) {
-        //console.log("SOFT ON");
         softPedalOn = true;
         document.getElementById("softPedal").classList.add("pressed");
       } else if (event.value == 0) {
-        //console.log("SOFT OFF");
         softPedalOn = false;
         document.getElementById("softPedal").classList.remove("pressed");
       }
@@ -1145,16 +1142,8 @@ const pressSustainPedal = function (pedalInput) {
     }
   }
   
-  // XXX how to accommodate changes in pedaling levels between on and off?
-  //if (sustainPedalOn) {
-  //  releaseSustainPedal();
-  //}
-  //console.log("SUSTAIN ON");
   if (!sustainPedalOn) {
-    //piano.pedalDown();
     const sustainRatio = parseFloat(parseFloat(sustainLevel) / 127.0);
-    console.log("SUSTAIN PEDAL GOING DOWN, LEVEL IS",sustainLevel,"RATIO",sustainRatio);
-    //piano.pedalDown(sustainRatio);
     piano.pedalDown({ level: sustainRatio });
   }
   sustainPedalOn = true;
@@ -1164,7 +1153,6 @@ const pressSustainPedal = function (pedalInput) {
 const releaseSustainPedal = function () {
   piano.pedalUp();
   sustainPedalOn = false;
-  //console.log("SUSTAIN OFF");
   document.getElementById("sustainPedal").classList.remove("pressed");
 };
 
@@ -1183,10 +1171,8 @@ function togglePedalLock(event) {
     softPedalLocked = !softPedalLocked;
     softPedalOn = softPedalLocked;
     if (softPedalOn) {
-      //console.log("SOFT ON");
       document.getElementById("softPedal").classList.add("pressed");
     } else {
-      //console.log("SOFT OFF");
       document.getElementById("softPedal").classList.remove("pressed");
     }
   }
@@ -1288,6 +1274,7 @@ const updateVolumeSlider = function (event) {
     volumeRatio = Math.round(10*volumeRatio)/10; 
     document.getElementById("masterVolume").value = volumeRatio;
     document.getElementById("masterVolumeSlider").value = volumeRatio;
+
   } else {
     sliderName = event.target.name;
 
