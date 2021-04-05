@@ -1112,16 +1112,36 @@ const panViewportToTick = function (tick) {
 };
 
 const pressSustainPedal = function (pedalInput) {
+  /* Multiple input types are in play here:
+   * MIDI pedal input
+   * Keyboard sustain pedal key (hold to sustain)
+   * Keyboard "sustain more" key
+   * Keyboard "sustain less" key
+   *
+   * They physical MIDI pedal can produce values between
+   * 0 and 127. 0 = pedal off, in this case.
+   * For the keyboard inputs, the modifier keys can move
+   * the pedal level between 1 and 127, so the sustain
+   * hold key must be released to turn it off; if the
+   * pedal has set the value to 0 (off), then pressing
+   * the keyboard toggle key will reset the pedal to
+   * fully on (level = 127).
+   */
+
   if (pedalInput !== undefined) {
     if (!(pedalInput instanceof KeyboardEvent)) {
+      // Physical MIDI pedal input is of type int
       sustainLevel = parseInt(pedalInput);
+      if (sustainLevel == 0) {
+        releaseSustainPedal();
+      }
     } else {
       if (pedalInput.type == "keydown") {
         if (pedalInput.code == SUSTAIN_LESS_KEY) {
           if (pedalInput.shiftKey) {
-            sustainLevel = Math.max(0, sustainLevel - 1);
+            sustainLevel = Math.max(1, sustainLevel - 1);
           } else {
-            sustainLevel = Math.max(0, sustainLevel - SUSTAIN_LEVEL_DELTA);
+            sustainLevel = Math.max(1, sustainLevel - SUSTAIN_LEVEL_DELTA);
           }
         } else if (pedalInput.code == SUSTAIN_MORE_KEY) {
           if (pedalInput.shiftKey) {
@@ -1129,25 +1149,25 @@ const pressSustainPedal = function (pedalInput) {
           } else {
             sustainLevel = Math.min(127, sustainLevel + SUSTAIN_LEVEL_DELTA);
           }
+        } else if (pedalInput.code == SUSTAIN_PEDAL_KEY) {
+          if (sustainLevel == 0) {
+            sustainLevel = 127;
+          }
         }
       }
     }
 
-    if (sustainLevel == 0) {
-      releaseSustainPedal();
-      return;
-    } else {
-      document.getElementById("sustainLevel").value = sustainLevel;
-      document.getElementById("sustainLevelSlider").value = sustainLevel;
-    }
+    document.getElementById("sustainLevel").value = sustainLevel;
+    document.getElementById("sustainLevelSlider").value = sustainLevel;
   }
   
-  if (!sustainPedalOn) {
+  if (sustainLevel > 0) {
     const sustainRatio = parseFloat(parseFloat(sustainLevel) / 127.0);
+    //console.log("PEDAL DOWN AT LEVEL",sustainRatio);
     piano.pedalDown({ level: sustainRatio });
+    sustainPedalOn = true;
+    document.getElementById("sustainPedal").classList.add("pressed");
   }
-  sustainPedalOn = true;
-  document.getElementById("sustainPedal").classList.add("pressed");
 };
 
 const releaseSustainPedal = function () {
@@ -1744,7 +1764,7 @@ const keyboardKeyControl = function(event) {
         if (sustainPedalOn) {
           break;
         }
-        pressSustainPedal();
+        pressSustainPedal(event);
         break;
       } else if (event.type == "keyup") {
         if (!sustainPedalOn) {
