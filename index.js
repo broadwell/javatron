@@ -317,7 +317,7 @@ const loadRecording = function (e, newRecordingId) {
   }
   clearScrollTimer();
   activeNotes.forEach((noteNumber) => {
-    keyboardToggleKey(noteNumber, false);
+    stopNote(noteNumber);
   });
   activeNotes = [];
   highlightedNotes = [];
@@ -956,7 +956,7 @@ const stopPlayback = function () {
     samplePlayer.stop();
     clearScrollTimer();
     activeNotes.forEach((noteNumber) => {
-      keyboardToggleKey(noteNumber, false);
+      stopNote(noteNumber);
     });
     playState = "stopped";
     activeNotes = [];
