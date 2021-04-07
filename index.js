@@ -953,7 +953,8 @@ const stopPlayback = function () {
     samplePlayer.stop();
     clearScrollTimer();
     activeNotes.forEach((noteNumber) => {
-      keyboardToggleKey(noteNumber, false);
+      stopNote(noteNumber);
+      //keyboardToggleKey(noteNumber, false);
     });
     playState = "stopped";
     activeNotes = [];
