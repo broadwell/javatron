@@ -158,6 +158,7 @@ let holesInfo = {};
 let paintHoles = false; // Whether to draw in entire hole lane on roll
 let paintedHoles = {}; // Holes currently drawn as overlays
 let horizPos = 0.5; // Hack to keep track of horizontal pan position of viewer
+let showAllOverlays = false; // Draw all of the hole overlays and keep them visible
 
 /* Defaults for time-based acceleration emulation */
 let rollPPI = 300.0;
@@ -630,9 +631,21 @@ const processHoleAnalysis = function(data) {
 
 }
 
+const toggleHoleOverlays = function(event) {
+  showAllOverlays = event.target.checked;
+  if (showAllOverlays) {
+    console.log(holesInfo);
+    Object.keys(holesInfo).forEach(linePx => {
+      overlayHolesAtRow(linePx);
+    });
+  } else {
+    clearOverlays(0, true);
+  }
+}
+
 const clearOverlays = function(newTick, allIfTrue) {
 
-  if (!showRoll) {
+  if (!showRoll || showAllOverlays) {
     return;
   }
 
@@ -654,6 +667,45 @@ const clearOverlays = function(newTick, allIfTrue) {
       }
     });
   }
+}
+
+const overlayHolesAtRow = function (linePx) {
+  holesInfo[linePx].forEach(hole => {
+
+    const holeId = hole['ID'];
+
+    if (holeId in paintedHoles) {
+      return;
+    }
+
+    const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
+    const pointX = parseInt(hole['ORIGIN_COL'].replace('px', ''));
+    const pointY = parseInt(hole['ORIGIN_ROW'].replace('px', ''));
+
+    //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
+    const offPx = parseInt(hole['OFF_TIME'].replace('px', ''));
+    const offTime = offPx - firstHolePx;
+    const noteLength = offPx - pointY;
+
+    let noteElt = document.createElement("div");
+    
+    //if (event.track <= 3) {
+      noteElt.classList.add('music-hole');
+    //} else {
+    //  noteElt.classList.add('control-hole')
+    //}
+
+    let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, colWidth, noteLength);
+    openSeadragon.viewport.viewer.addOverlay(noteElt, rectViewport);
+
+    if (holeOverlays[offTime] === undefined) {
+      holeOverlays[offTime] = [noteElt];
+    } else {
+      holeOverlays[offTime].push(noteElt);
+    }
+
+    paintedHoles[holeId] = offTime;
+  });
 }
 
 const midiEvent = function (event) {
@@ -720,42 +772,9 @@ const midiEvent = function (event) {
           // WIDTH_ROW: "57px"
 
           /* Use hole analysis report data, if available */
-          holesInfo[linePx].forEach(hole => {
-
-            const holeId = hole['ID'];
-
-            if (holeId in paintedHoles) {
-              return;
-            }
-
-            const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
-            const pointX = parseInt(hole['ORIGIN_COL'].replace('px', ''));
-            const pointY = parseInt(hole['ORIGIN_ROW'].replace('px', ''));
-
-            //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
-            const offPx = parseInt(hole['OFF_TIME'].replace('px', ''));
-            const offTime = offPx - firstHolePx;
-            const noteLength = offPx - pointY;
-
-            let noteElt = document.createElement("div");
-            if (event.track <= 3) {
-              noteElt.classList.add('music-hole');
-            } else {
-              noteElt.classList.add('control-hole')
-            }
-
-            let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, colWidth, noteLength);
-            openSeadragon.viewport.viewer.addOverlay(noteElt, rectViewport);
-
-            if (holeOverlays[offTime] === undefined) {
-              holeOverlays[offTime] = [noteElt];
-            } else {
-              holeOverlays[offTime].push(noteElt);
-            }
-
-            paintedHoles[holeId] = offTime;
-
-          });
+          if (!showAllOverlays) { // This would mean the overlays are already shown
+            overlayHolesAtRow(linePx);
+          }
         
         } else {
 
@@ -1360,6 +1379,14 @@ const toggleRoll = function (event) {
   showRoll = event.target.checked;
   if (showRoll) {
     samplePlayer.stop();
+    activeNotes.forEach((noteNumber) => {
+      stopNote(noteNumber);
+    });
+    activeNotes = [];
+    highlightedNotes = [];
+    releaseSustainPedal();
+    softPedalOn = false;
+    playState = "stopped";
     samplePlayer = null;
     let osdLair = document.createElement("div");
     osdLair.setAttribute("name", "osdLair");
@@ -1522,8 +1549,10 @@ const initOSD = function() {
   });
 
   openSeadragon.addHandler("zoom", () => {
-    let center = openSeadragon.viewport.getCenter(true);
-    horizPos = center.x;
+    if (showRoll) {
+      let center = openSeadragon.viewport.getCenter(true);
+      horizPos = center.x;
+    }
   });
 
   openSeadragon.addHandler("canvas-drag", () => {
@@ -1719,6 +1748,10 @@ document
 document
   .getElementById("useMidiTempos")
   .addEventListener("click", toggleMidiTempos, false);
+
+document
+  .getElementById("showAllOverlays")
+  .addEventListener("click", toggleHoleOverlays, false);
 
 document
   .getElementById("accentButton")
