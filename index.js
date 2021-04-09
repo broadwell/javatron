@@ -954,7 +954,7 @@ const playPausePlayback = function () {
   }
 };
 
-const stopPlayback = function () {
+const stopPlayback = function (noRoll) {
   if (samplePlayer.isPlaying() || playState === "paused") {
     samplePlayer.stop();
     clearScrollTimer();
@@ -966,7 +966,7 @@ const stopPlayback = function () {
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
-    if (showRoll) {
+    if ((noRoll === undefined) && showRoll) {
       clearOverlays(samplePlayer.getCurrentTick(), true);
       openSeadragon.viewport.zoomTo(HOME_ZOOM);
       horizPos = .5;
@@ -1359,7 +1359,17 @@ const toggleRollPedaling = function (event) {
 const toggleRoll = function (event) {
   showRoll = event.target.checked;
   if (showRoll) {
-    samplePlayer.stop();
+    stopPlayback(true);
+    /*samplePlayer.stop();
+    activeNotes.forEach((noteNumber) => {
+      stopNote(noteNumber);
+    });
+    activeNotes = [];
+    highlightedNotes = [];
+    releaseSustainPedal();
+    softPedalOn = false;
+    document.getElementById("softPedal").classList.remove("pressed");
+    playState = "stopped";*/
     samplePlayer = null;
     let osdLair = document.createElement("div");
     osdLair.setAttribute("name", "osdLair");
@@ -1372,6 +1382,7 @@ const toggleRoll = function (event) {
     openSeadragon = null;
     document.getElementById("osdWrapper").children[0].remove();
   }
+  showRoll = event.target.checked;
 }
 
 const clearScrollTimer = function () {
@@ -1522,8 +1533,10 @@ const initOSD = function() {
   });
 
   openSeadragon.addHandler("zoom", () => {
-    let center = openSeadragon.viewport.getCenter(true);
-    horizPos = center.x;
+    if (showRoll) {
+      let center = openSeadragon.viewport.getCenter(true);
+      horizPos = center.x;
+    }
   });
 
   openSeadragon.addHandler("canvas-drag", () => {
@@ -1681,6 +1694,7 @@ document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 document
   .getElementById("playPause")
   .addEventListener("click", playPausePlayback, false);
+
 document.getElementById("stop").addEventListener("click", stopPlayback, false);
 
 document
