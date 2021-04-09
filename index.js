@@ -157,6 +157,7 @@ let holeSep = 0;
 let holesInfo = {};
 let paintHoles = false; // Whether to draw in entire hole lane on roll
 let paintedHoles = {}; // Holes currently drawn as overlays
+let horizPos = 0.5; // Hack to keep track of horizontal pan position of viewer
 
 /* Defaults for time-based acceleration emulation */
 let rollPPI = 300.0;
@@ -382,7 +383,7 @@ const initPlayer = function () {
       let sustainStart = 0;
       let softStart = 0;
 
-      //console.log("TRACK",t,"EVENTS",track);
+      console.log("TRACK",t,"EVENTS",track);
 
       track.forEach((event) => {
         if (event.name === "Controller Change") {
@@ -547,6 +548,7 @@ const initPlayer = function () {
     console.log("END OF FILE");
     stopPlayback();
     // Do something when end of the file has been reached.
+    horizPos = .5;
     panViewportToTick(0);
   });
 
@@ -922,14 +924,13 @@ const playPausePlayback = function () {
 
   if (samplePlayer.isPlaying()) {
     // Pause
-    console.log("PAUSING");
     samplePlayer.pause();
     clearScrollTimer();
     playState = "paused";
   } else {
     // Play
     if (showRoll) {
-    openSeadragon.viewport.zoomTo(HOME_ZOOM);
+      //openSeadragon.viewport.zoomTo(HOME_ZOOM);
       if (playState == "stopped") {
         // If we want this behavior (not panning back to the beginning
         // after a stop until the Play button is pressed), note that it
@@ -937,7 +938,7 @@ const playPausePlayback = function () {
         // during the scrollback. The foolproof solution would be to
         // use an event listener to wait until the scroll is completed
         // before starting playback, but maybe it's not necessary...
-        panViewportToTick(0);
+        //panViewportToTick(0);
       }
     }
     activeNotes.forEach((noteNumber) => {
@@ -966,6 +967,9 @@ const stopPlayback = function () {
     if (showRoll) {
       clearOverlays(samplePlayer.getCurrentTick(), true);
     }
+    openSeadragon.viewport.zoomTo(HOME_ZOOM);
+    horizPos = .5;
+    panViewportToTick(0);
   }
 };
 
@@ -1043,14 +1047,14 @@ const skipTo = function (targetTick, targetProgress) {
   updateProgress();
 };
 
-const skipToPixel = function (yPixel) {
+const skipToPixel = function (pixelY) {
   if (scorePlaying) {
     return;
   }
 
-  let targetTick = yPixel - firstHolePx;
+  let targetTick = pixelY - firstHolePx;
   if (scrollUp) {
-    targetTick = firstHolePx - yPixel;
+    targetTick = firstHolePx - pixelY;
   }
 
   const targetProgress = parseFloat(targetTick) / parseFloat(totalTicks);
@@ -1069,7 +1073,7 @@ const skipToProgress = function (event) {
   panViewportToTick(targetTick);
 };
 
-const panViewportToTick = function (tick) {
+const panViewportToTick = function (tick, resetZoom) {
   /* PAN VIEWPORT IMAGE */
 
   if (!showRoll) {
@@ -1081,8 +1085,6 @@ const panViewportToTick = function (tick) {
   if (typeof tick === "undefined" || isNaN(tick) || tick === null) {
     tick = samplePlayer.getCurrentTick();
   }
-
-  let viewportBounds = openSeadragon.viewport.getBounds();
 
   // Thanks to Craig, MIDI tick numbers correspond to pixels from the first
   // hole of the roll.
@@ -1097,8 +1099,12 @@ const panViewportToTick = function (tick) {
     linePx
   );
 
+  if (resetZoom === true) {
+    horizPos = 0.5;
+  }
+
   let lineCenter = new OpenSeadragon.Point(
-    viewportBounds.width / 2.0,
+    horizPos,
     lineViewport.y
   );
 
@@ -1505,17 +1511,23 @@ const initOSD = function() {
 
   openSeadragon = new OpenSeadragon({
     id: viewerId,
-    showNavigationControl: false,
-    panHorizontal: false,
+    showNavigationControl: true,
+    panHorizontal: true,
     visibilityRatio: 1,
     defaultZoomLevel: HOME_ZOOM,
     minZoomLevel: 0.01,
     maxZoomLevel: 4,
   });
 
+  openSeadragon.addHandler("zoom", () => {
+    let center = openSeadragon.viewport.getCenter(true);
+    horizPos = center.x;
+  });
+
   openSeadragon.addHandler("canvas-drag", () => {
-    let center = openSeadragon.viewport.getCenter();
+    let center = openSeadragon.viewport.getCenter(true);
     let centerCoords = openSeadragon.viewport.viewportToImageCoordinates(center);
+    horizPos = center.x;
     skipToPixel(centerCoords.y);
   });
 
