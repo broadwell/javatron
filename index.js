@@ -383,7 +383,7 @@ const initPlayer = function () {
       let sustainStart = 0;
       let softStart = 0;
 
-      console.log("TRACK",t,"EVENTS",track);
+      //console.log("TRACK",t,"EVENTS",track);
 
       track.forEach((event) => {
         if (event.name === "Controller Change") {
@@ -526,6 +526,7 @@ const initPlayer = function () {
     updateProgress();
 
     if (showRoll) {
+      
       openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
 
       openSeadragon.addOnceHandler("update-viewport", () => {
@@ -534,6 +535,7 @@ const initPlayer = function () {
     }
     currentTick = 0;
     playerProgress();
+
 
   });
 
@@ -966,10 +968,10 @@ const stopPlayback = function () {
     document.getElementById("softPedal").classList.remove("pressed");
     if (showRoll) {
       clearOverlays(samplePlayer.getCurrentTick(), true);
+      openSeadragon.viewport.zoomTo(HOME_ZOOM);
+      horizPos = .5;
+      panViewportToTick(0);
     }
-    openSeadragon.viewport.zoomTo(HOME_ZOOM);
-    horizPos = .5;
-    panViewportToTick(0);
   }
 };
 
