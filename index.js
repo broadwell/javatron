@@ -156,9 +156,10 @@ let holeWidth = 0;
 let holeSep = 0;
 let holesInfo = {};
 let paintHoles = false; // Whether to draw in entire hole lane on roll
-let paintedHoles = {}; // Holes currently drawn as overlays
+let paintedHoles = {}; // Holes currently drawn as overlays, indexed by ID from analysis
+let backgroundOverlays = {}; // Maps hole IDs to [firstYpixel, lastYpixel]
 let horizPos = 0.5; // Hack to keep track of horizontal pan position of viewer
-let showAllOverlays = false; // Draw all of the hole overlays and keep them visible
+let activeOnly = true; // When false, overlay all holes in viewer
 
 /* Defaults for time-based acceleration emulation */
 let rollPPI = 300.0;
@@ -528,7 +529,10 @@ const initPlayer = function () {
 
     if (showRoll) {
       
-      openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
+      //openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
+      openSeadragon.viewport.viewer.addTiledImage({tileSource: recordings_data[currentRecordingId]["image_url"]});
+
+      //let openSD = new openSeadragon.OpenSeadragon({ })
 
       openSeadragon.addOnceHandler("update-viewport", () => {
         panViewportToTick(0);
@@ -631,21 +635,68 @@ const processHoleAnalysis = function(data) {
 
 }
 
-const toggleHoleOverlays = function(event) {
-  showAllOverlays = event.target.checked;
-  if (showAllOverlays) {
-    console.log(holesInfo);
-    Object.keys(holesInfo).forEach(linePx => {
-      overlayHolesAtRow(linePx);
-    });
+const toggleActiveOnly = function(event) {
+  activeOnly = event.target.checked;
+  // This would remove the roll image
+  if (activeOnly) {
+    //openSeadragon.world.getItemAt(0).setOpacity(0);
   } else {
-    clearOverlays(0, true);
+    updateOverlays();
+    //openSeadragon.world.getItemAt(0).setOpacity(1);
   }
+}
+
+const updateOverlays = function() {
+  if (!showRoll || activeOnly) {
+    return;
+  }
+
+  // Get viewport Y bounds in image coords
+  let viewableImage = openSeadragon.viewport.viewportToImageRectangle(openSeadragon.viewport.getBounds());
+
+  // XXX Need to reverse this for bottom-up scrolling rolls
+  //console.log(viewableImage);
+
+  let firstPx = parseInt(viewableImage.y);
+  let lastPx = firstPx + parseInt(viewableImage.height);
+
+  // Delete all overlays that don't overlap with the current viewer window
+  Object.keys(backgroundOverlays).forEach(holeId => {
+    if ((backgroundOverlays[holeId][0] + backgroundOverlays[holeId][1] < firstPx) ||
+        (backgroundOverlays[holeId][0] > lastPx)) {
+      let tick = backgroundOverlays[holeId][0] + firstHolePx + backgroundOverlays[holeId][1];
+      if (tick in holeOverlays) {
+        holeOverlays[tick].forEach(item => {
+          openSeadragon.viewport.viewer.removeOverlay(item);
+        });
+        delete holeOverlays[tick];
+      }
+      delete backgroundOverlays[holeId];
+    }
+  });
+
+  // Show all overlays that overlap with the viewer window
+  for (let imagePx=firstPx; imagePx<=lastPx; imagePx++) {
+    if (imagePx in holesInfo) {
+
+      holesInfo[imagePx].forEach(hole => {
+
+        const holeId = hole['ID'];
+
+        if (holeId in backgroundOverlays) {
+          return;
+        }
+        overlayHolesAtRow(imagePx, true);
+      });
+    }
+
+  }
+
 }
 
 const clearOverlays = function(newTick, allIfTrue) {
 
-  if (!showRoll || showAllOverlays) {
+  if (!showRoll) {
     return;
   }
 
@@ -669,13 +720,19 @@ const clearOverlays = function(newTick, allIfTrue) {
   }
 }
 
-const overlayHolesAtRow = function (linePx) {
+const overlayHolesAtRow = function (linePx, background) {
   holesInfo[linePx].forEach(hole => {
 
     const holeId = hole['ID'];
 
-    if (holeId in paintedHoles) {
-      return;
+    if (background === undefined) {
+      if (holeId in paintedHoles) {
+        return;
+      } else {
+        if (holeId in backgroundOverlays) {
+          return;
+        }
+      }
     }
 
     const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
@@ -704,7 +761,12 @@ const overlayHolesAtRow = function (linePx) {
       holeOverlays[offTime].push(noteElt);
     }
 
-    paintedHoles[holeId] = offTime;
+    if (background === undefined) {
+      paintedHoles[holeId] = offTime;
+    } else {
+      backgroundOverlays[holeId] = [pointY, noteLength];
+    }
+
   });
 }
 
@@ -772,9 +834,9 @@ const midiEvent = function (event) {
           // WIDTH_ROW: "57px"
 
           /* Use hole analysis report data, if available */
-          if (!showAllOverlays) { // This would mean the overlays are already shown
-            overlayHolesAtRow(linePx);
-          }
+          updateOverlays();
+
+          overlayHolesAtRow(linePx);
         
         } else {
 
@@ -973,7 +1035,7 @@ const playPausePlayback = function () {
   }
 };
 
-const stopPlayback = function () {
+const stopPlayback = function (noRoll) {
   if (samplePlayer.isPlaying() || playState === "paused") {
     samplePlayer.stop();
     clearScrollTimer();
@@ -985,7 +1047,7 @@ const stopPlayback = function () {
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
-    if (showRoll) {
+    if ((noRoll === undefined) && showRoll) {
       clearOverlays(samplePlayer.getCurrentTick(), true);
       openSeadragon.viewport.zoomTo(HOME_ZOOM);
       horizPos = .5;
@@ -1378,15 +1440,7 @@ const toggleRollPedaling = function (event) {
 const toggleRoll = function (event) {
   showRoll = event.target.checked;
   if (showRoll) {
-    samplePlayer.stop();
-    activeNotes.forEach((noteNumber) => {
-      stopNote(noteNumber);
-    });
-    activeNotes = [];
-    highlightedNotes = [];
-    releaseSustainPedal();
-    softPedalOn = false;
-    playState = "stopped";
+    stopPlayback(true);
     samplePlayer = null;
     let osdLair = document.createElement("div");
     osdLair.setAttribute("name", "osdLair");
@@ -1546,12 +1600,18 @@ const initOSD = function() {
     defaultZoomLevel: HOME_ZOOM,
     minZoomLevel: 0.01,
     maxZoomLevel: 4,
+    opacity: 1
+  });
+
+  openSeadragon.addHandler("pan", () => {
+    updateOverlays();
   });
 
   openSeadragon.addHandler("zoom", () => {
     if (showRoll) {
       let center = openSeadragon.viewport.getCenter(true);
       horizPos = center.x;
+      updateOverlays();
     }
   });
 
@@ -1750,8 +1810,8 @@ document
   .addEventListener("click", toggleMidiTempos, false);
 
 document
-  .getElementById("showAllOverlays")
-  .addEventListener("click", toggleHoleOverlays, false);
+  .getElementById("activeOnly")
+  .addEventListener("click", toggleActiveOnly, false);
 
 document
   .getElementById("accentButton")
