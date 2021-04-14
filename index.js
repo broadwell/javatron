@@ -637,17 +637,35 @@ const processHoleAnalysis = function(data) {
 
 const toggleActiveOnly = function(event) {
   activeOnly = event.target.checked;
+  updateOverlays();
   // This would remove the roll image
+  /*
   if (activeOnly) {
     //openSeadragon.world.getItemAt(0).setOpacity(0);
   } else {
-    updateOverlays();
     //openSeadragon.world.getItemAt(0).setOpacity(1);
   }
+  */
 }
 
 const updateOverlays = function() {
-  if (!showRoll || activeOnly) {
+  if (!showRoll) {
+    return;
+  }
+
+  if (activeOnly || (!activeOnly && (openSeadragon.viewport.getZoom() < 1))) {
+    console.log("CLEARING ALL BACKGROUND OVERLAYS")
+    Object.keys(backgroundOverlays).forEach(holeId => {
+      console.log("CLEARING HOLE",holeId);
+      let tick = backgroundOverlays[holeId][0] + firstHolePx + backgroundOverlays[holeId][1];
+      if (tick in holeOverlays) {
+        holeOverlays[tick].forEach(item => {
+          openSeadragon.viewport.viewer.removeOverlay(item);
+        });
+        delete holeOverlays[tick];
+      }
+      delete backgroundOverlays[holeId];
+    });
     return;
   }
 
@@ -675,6 +693,7 @@ const updateOverlays = function() {
     }
   });
 
+  console.log("SHOWING OVERLAYS IN WINDOW");
   // Show all overlays that overlap with the viewer window
   for (let imagePx=firstPx; imagePx<=lastPx; imagePx++) {
     if (imagePx in holesInfo) {
@@ -694,9 +713,10 @@ const updateOverlays = function() {
 
 }
 
+// Only does active note overlays for now
 const clearOverlays = function(newTick, allIfTrue) {
 
-  if (!showRoll) {
+  if (!showRoll || !activeOnly) {
     return;
   }
 
@@ -718,6 +738,7 @@ const clearOverlays = function(newTick, allIfTrue) {
       }
     });
   }
+
 }
 
 const overlayHolesAtRow = function (linePx, background) {
@@ -728,10 +749,10 @@ const overlayHolesAtRow = function (linePx, background) {
     if (background === undefined) {
       if (holeId in paintedHoles) {
         return;
-      } else {
-        if (holeId in backgroundOverlays) {
-          return;
-        }
+      } 
+    } else {
+      if (holeId in backgroundOverlays) {
+        return;
       }
     }
 
@@ -747,7 +768,7 @@ const overlayHolesAtRow = function (linePx, background) {
     let noteElt = document.createElement("div");
     
     //if (event.track <= 3) {
-      noteElt.classList.add('music-hole');
+    noteElt.classList.add('music-hole');
     //} else {
     //  noteElt.classList.add('control-hole')
     //}
