@@ -61,6 +61,8 @@ const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
 const SUSTAIN_LESS_KEY = "KeyB";
 const SUSTAIN_MORE_KEY = "KeyN";
 const SUSTAIN_LEVEL_DELTA = 5;
+const WELTE_RED_FIRST_NOTE = 11; // TRACKER_HOLE value of piano key 1 (MIDI 21) for Welte reds
+const POPULAR_FIRST_NOTE = 5; // Ditto for 88-note rolls
 //const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
@@ -617,20 +619,15 @@ const processHoleAnalysis = function(data) {
       // This happens rarely; not sure why
       return;
     }
-    // XXX This could potentially be made more efficient if
-    // MIDI_KEY values other than -1 were actually provided
-    // in the hole processing output (it would help to differentiate
-    // control holes from keypress holes). But maybe this isn't that
-    // important; if each control and keypress event has a slightly
-    // different tick value, then it should be sufficient to use the
-    // tick values alone to determine which MIDI event belongs to
-    // each hole.
+    // XXX Assuming the roll type is known (and more importantly, the
+    // number of control hole colums before the first note hole),
+    // the TRACKER_HOLE value can be used to compute the MIDI number
+    // and note name of each hole.
     const attack = parseInt(hole['NOTE_ATTACK'].replace('px', ''));
     let tick = attack - firstHolePx;
     if (scrollUp) {
       tick = firstHolePx - attack;
     }
-    //console.log("NOTE",hole['ID'],"attack",attack,"firstHolePx",firstHolePx,"tick",tick);
     if (holesInfo[tick] === undefined) {
       holesInfo[tick] = [hole];
     } else {
@@ -642,10 +639,9 @@ const processHoleAnalysis = function(data) {
 
 const toggleActiveOnly = function(event) {
   activeOnly = event.target.checked;
-  // This would remove the roll image
-
   if (activeOnly) {
     clearOverlaysBeforeTick(0,true);
+    // This would remove the roll image as "background"
     //openSeadragon.world.getItemAt(0).setOpacity(0);
   } else {
     //openSeadragon.world.getItemAt(0).setOpacity(1);
@@ -719,10 +715,6 @@ const clearOverlaysOutsideWindow = function() {
   Object.keys(paintedHoles).forEach(holeId => {
     const holeOffTick = paintedHoles[holeId];
     if ((holeOffTick < firstTick) || (holeOffTick > lastTick)) {
-
-    // if ((holeInfo[holeId][0] + backgroundOverlays[holeId][1] < firstPx) ||
-    //     (backgroundOverlays[holeId][0] > lastPx)) {
-      //let tick = backgroundOverlays[holeId][0] + firstHolePx + backgroundOverlays[holeId][1];
       if (holeOffTick in holeOverlays) {
         holeOverlays[holeOffTick].forEach(item => {
           openSeadragon.viewport.viewer.removeOverlay(item);
@@ -741,11 +733,6 @@ const overlayHolesAtTick = function (tick) {
     return;
   }
 
-  // const linePx = tick + firstHolePx;
-  // if (scrollUp) {
-  //   linePx = firstHolePx - tick;
-  // }
-
   if (holesInfo[tick] === undefined) {
     return;
   }
@@ -756,7 +743,7 @@ const overlayHolesAtTick = function (tick) {
 
     if (holeId in paintedHoles) {
       return;
-    } 
+    }
 
     const colWidth = parseInt(hole['WIDTH_COL'].replace('px', ''));
     const pointX = parseInt(hole['ORIGIN_COL'].replace('px', ''));
@@ -766,15 +753,18 @@ const overlayHolesAtTick = function (tick) {
     //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
     const offPx = parseInt(hole['OFF_TIME'].replace('px', ''));
     let offTime = offPx - firstHolePx;
+    let midiNumber = parseInt(hole['TRACKER_HOLE']) - WELTE_RED_FIRST_NOTE + 21;
     if (scrollUp) {
-      offTime = firstHolepx - offPx;
+      offTime = firstHolePx - offPx;
+      midiNumber = parseInt(hole['TRACKER_HOLE']) - POPULAR_FIRST_NOTE + 21;
     }
+    const noteName = getNoteName(midiNumber);
     // Should be the same as lineTick - offTime
     const noteLength = offPx - pointY;
 
     let noteElt = document.createElement("div");
-    noteElt.title = holeId;
-    
+    noteElt.title = noteName + " (" + holeId + ")";
+
     //if (event.track <= 3) {
     noteElt.classList.add('music-hole');
     //} else {
@@ -791,10 +781,6 @@ const overlayHolesAtTick = function (tick) {
     } else {
       holeOverlays[offTime].push(noteElt);
     }
-
-    // if (background !== undefined) {
-    //   backgroundOverlays[holeId] = [pointY, noteLength];
-    // }
 
   });
 }
@@ -885,6 +871,8 @@ const midiEvent = function (event) {
 
       /* Visualize note on roll */
       if (showRoll) {
+        //console.log("VISUALIZING NOTE AT",event.tick,"NOTE",noteNumber,getNoteName(noteNumber));
+
         if (holesInfo[event.tick] !== undefined) {
         
           // AREA: "1171px"
@@ -907,7 +895,6 @@ const midiEvent = function (event) {
           /* Use hole analysis report data, if available */
           updateOverlays(event.tick);
 
-          // console.log("VISUALIZING NOTE AT",event.tick,"Y_PIXEL",linePx,"FHPX",firstHolePx);
           // clearOverlaysBeforeTick(event.tick);
           // overlayHolesAtTick(event.tick);
         
@@ -923,12 +910,14 @@ const midiEvent = function (event) {
           let noteNudge = 0;
 
           if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
-            noteOffset = noteNumber - 5;
+            noteOffset = noteNumber - POPULAR_FIRST_NOTE;
             noteNudge = holeSep / 2.0;
           } else {
-            noteOffset = noteNumber - 11;
+            noteOffset = noteNumber - WELTE_RED_FIRST_NOTE;
             noteNudge = holeSep;
           }
+
+          const noteName = getNoteName(noteNumber);
 
           let pointX = noteOffset * holeSep + noteNudge;
 
@@ -951,6 +940,7 @@ const midiEvent = function (event) {
           } else {
             noteRect.classList.add('control-hole')
           }
+          noteRect.title = noteName;
 
           let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, holeWidth, noteLength);
 
