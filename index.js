@@ -205,7 +205,7 @@ const stopNote = function (noteNumber) {
   keyboardToggleKey(noteNumber, false);
 };
 
-const initScorePlayer = function () {
+const initScoreViewer = function () {
 
   scorePlayer = null;
 
@@ -247,60 +247,60 @@ const initScorePlayer = function () {
     document.getElementById("scorePage").innerHTML =
       scorePages[currentScorePage - 1];
 
-    scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
+    // scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
 
-    /* Instantiate the score MIDI player */
-    scorePlayer = new MidiPlayer.Player();
+    // /* Instantiate the score MIDI player */
+    // scorePlayer = new MidiPlayer.Player();
 
-    scorePlayer.on("midiEvent", function (e) {
-      const timeMultiplier =
-        parseFloat(scorePlayer.getSongTime() * 1000.0) /
-        parseFloat(scorePlayer.totalTicks);
+    // scorePlayer.on("midiEvent", function (e) {
+    //   const timeMultiplier =
+    //     parseFloat(scorePlayer.getSongTime() * 1000.0) /
+    //     parseFloat(scorePlayer.totalTicks);
 
-      let vrvTime = parseInt(e.tick * timeMultiplier) + 1;
+    //   let vrvTime = parseInt(e.tick * timeMultiplier) + 1;
 
-      let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
+    //   let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
 
-      let lastNoteIds = highlightedNotes;
-      if (lastNoteIds && lastNoteIds.length > 0) {
-        lastNoteIds.forEach((noteId) => {
-          let noteElt = document.getElementById(noteId);
-          if (noteElt) {
-            noteElt.setAttribute("style", "fill: #000");
-          }
-        });
-      }
+    //   let lastNoteIds = highlightedNotes;
+    //   if (lastNoteIds && lastNoteIds.length > 0) {
+    //     lastNoteIds.forEach((noteId) => {
+    //       let noteElt = document.getElementById(noteId);
+    //       if (noteElt) {
+    //         noteElt.setAttribute("style", "fill: #000");
+    //       }
+    //     });
+    //   }
 
-      if (elementsattime.page > 0) {
-        if (elementsattime.page != currentScorePage) {
-          currentScorePage = elementsattime.page;
-          document.getElementById("scorePage").innerHTML =
-            scorePages[currentScorePage - 1];
-        }
-      }
+    //   if (elementsattime.page > 0) {
+    //     if (elementsattime.page != currentScorePage) {
+    //       currentScorePage = elementsattime.page;
+    //       document.getElementById("scorePage").innerHTML =
+    //         scorePages[currentScorePage - 1];
+    //     }
+    //   }
 
-      let noteIds = elementsattime.notes;
-      if (noteIds && noteIds.length > 0) {
-        noteIds.forEach((noteId) => {
-          let noteElt = document.getElementById(noteId);
-          if (noteElt) {
-            noteElt.setAttribute("style", "fill: #c00");
-          }
-        });
-      }
-      highlightedNotes = noteIds;
+    //   let noteIds = elementsattime.notes;
+    //   if (noteIds && noteIds.length > 0) {
+    //     noteIds.forEach((noteId) => {
+    //       let noteElt = document.getElementById(noteId);
+    //       if (noteElt) {
+    //         noteElt.setAttribute("style", "fill: #c00");
+    //       }
+    //     });
+    //   }
+    //   highlightedNotes = noteIds;
 
-      midiEvent(e);
-    });
+    //   midiEvent(e);
+    // });
 
-    scorePlayer.on("endOfFile", function () {
-      console.log("END OF FILE");
-      scorePlaying = false;
-      // Do something when end of the file has been reached.
-    });
+    // scorePlayer.on("endOfFile", function () {
+    //   console.log("END OF FILE");
+    //   scorePlaying = false;
+    //   // Do something when end of the file has been reached.
+    // });
 
-    // Load MIDI data
-    scorePlayer.loadDataUri(scoreMIDI);
+    // // Load MIDI data
+    // scorePlayer.loadDataUri(scoreMIDI);
   }
 
 }
@@ -336,13 +336,15 @@ const loadRecording = function (e, newRecordingId) {
   recordingSlug = recordings_data[currentRecordingId]["slug"];
   //currentRecording = midiData[recordingSlug];
 
-  clearOverlaysBeforeTick(0, true);
+  if (showRoll) {
+    clearOverlaysBeforeTick(0, true);
+  }
   activeOnly = true;
   document.getElementById("activeOnly").checked = true;
 
   initPlayer();
 
-  initScorePlayer();
+  initScoreViewer();
 
 };
 
@@ -507,7 +509,7 @@ const initPlayer = function () {
     document.getElementById("label").innerText = rollMetadata["LABEL"];
     document.getElementById("purl").innerHTML =
       '<a href="' + rollMetadata["PURL"] + '">' + rollMetadata["PURL"] + "</a>";
-    document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
+    // document.getElementById('callno').innerText = rollMetadata['CALLNUM'];
 
     scrollUp = false;
     document.getElementById("playExpressions").disabled = false;
@@ -1115,7 +1117,7 @@ const stopPlayback = function () {
     releaseSustainPedal();
     softPedalOn = false;
     document.getElementById("softPedal").classList.remove("pressed");
-    if (showRoll) {
+    if (showRoll && openSeadragon) {
       clearOverlaysBeforeTick(samplePlayer.getCurrentTick(), true);
       openSeadragon.viewport.zoomTo(HOME_ZOOM);
       horizPos = .5;
@@ -1506,8 +1508,9 @@ const toggleRollPedaling = function (event) {
 }
 
 const toggleRoll = function (event) {
+
   showRoll = event.target.checked;
-  if (showRoll) {
+  if (event.target.checked) {
     stopPlayback();
     samplePlayer = null;
     let osdLair = document.createElement("div");
@@ -1521,6 +1524,7 @@ const toggleRoll = function (event) {
     openSeadragon = null;
     document.getElementById("osdWrapper").children[0].remove();
   }
+  
 }
 
 const clearScrollTimer = function () {
@@ -1534,21 +1538,20 @@ const toggleScore = function (event) {
   showScore = event.target.checked;
   if (showScore) {
     document.getElementById("scoreWrapper").appendChild(scoreStorage);
-    initScorePlayer();
+    initScoreViewer();
+    document
+      .getElementById("prevScorePage")
+      .addEventListener("click", changeScorePage, false);
+    document
+      .getElementById("nextScorePage")
+      .addEventListener("click", changeScorePage, false);
   } else {
-    if (scorePlayer) {
-      if (scorePlaying) {
-        scorePlayer.stop();
-        scorePlaying = false;
-        clearScrollTimer();
-      }
-    }
     let scoreNode = document.getElementById("scoreWrapper").children[0];
     if (scoreNode) {
       scoreStorage = scoreNode.cloneNode(true);
       scoreNode.remove();
     }
-    scorePlayer = null;
+    //scorePlayer = null;
   }
 }
 
@@ -1605,9 +1608,7 @@ const scorePlayback = function (e) {
 };
 
 const changeScorePage = function (e) {
-  if (!scorePlayer || scorePlaying) {
-    return;
-  }
+
   if (e.target.name == "prevPage" && currentScorePage > 1) {
     currentScorePage--;
     document.getElementById("scorePage").innerHTML =
@@ -1699,15 +1700,11 @@ const initOSD = function() {
 
 initOSD();
 
-//let globalPiano = null;
+let globalPiano = null;
 
 // create the piano and load velocity steps
 let piano = new Piano({
-  // XXX The samples load from the guy's Github site
-  // unless there's a valid URL, and using a
-  // local folder seems problematic...
   url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
-  //url: '/audio/', // note sure we want to try to bundle these...
   velocities: DEFAULT_VELOCITIES,
   release: true,
   pedal: true,
@@ -1720,7 +1717,7 @@ Promise.all([loadPiano]).then(() => {
   document.getElementById("playPause").disabled = false;
   keyboard.enable();
   //document.getElementById("playScorePage").disabled = false;
-  //globalPiano = piano;
+  globalPiano = piano;
 });
 
 let keyboard_elt = document.querySelector(".keyboard");
@@ -1739,8 +1736,6 @@ keyboard
     midiNotePlayer(which + 20, false);
   });
 
-/*
-
 document.querySelectorAll("input.samplevol").forEach((input) => {
   piano[input.name].value = parseInt(input.value, 10);
   document.getElementById(input.name).value = parseInt(input.value, 10);
@@ -1755,22 +1750,21 @@ document.getElementById("velocities").value = document.getElementById("velocitie
 document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
   document.getElementById("velocities").value = document.getElementById("velocitiesSlider").value;
 
+  let wasPlaying = false;
+
   if (playState === "playing") {
     playPausePlayback();
+    wasPlaying = true;
   }
 
   document.getElementById("playPause").disabled = true;
-  document.getElementById("playScorePage").disabled = true;
-  document.getElementById("stop").disabled = true;
-  document.getElementById("stopScorePage").disabled = true;
+  //document.getElementById("playScorePage").disabled = true;
+  //document.getElementById("stop").disabled = true;
+  //document.getElementById("stopScorePage").disabled = true;
   globalPiano.dispose();
 
   piano = new Piano({
-    // XXX The samples load from the guy's Github site
-    // unless there's a valid URL, and using a
-    // local folder seems problematic...
     url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
-    //url: '/audio/', // note sure we want to try to bundle these...
     velocities: parseInt(e.target.value),
     release: true,
     pedal: true,
@@ -1786,19 +1780,17 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
     });
 
     document.getElementById("playPause").disabled = false;
-    document.getElementById("playScorePage").disabled = false;
-    document.getElementById("stop").disabled = false;
-    document.getElementById("stopScorePage").disabled = false;
+    //document.getElementById("playScorePage").disabled = false;
+    //document.getElementById("stop").disabled = false;
+    //document.getElementById("stopScorePage").disabled = false;
 
     globalPiano = piano;
-    if (playState === "paused") {
-      playPausePlayback();
+    if (wasPlaying && (playState === "paused")) {
+       playPausePlayback();
     }
   });
 
 });
-
-*/
 
 let recordingsChooser = document.getElementById("recordings");
 recordingsChooser.onchange = loadRecording;
@@ -1854,19 +1846,21 @@ document
   .getElementById("progressSlider")
   .addEventListener("input", skipToProgress, false);
 
-document
-  .getElementById("prevScorePage")
-  .addEventListener("click", changeScorePage, false);
-document
-  .getElementById("nextScorePage")
-  .addEventListener("click", changeScorePage, false);
+// document
+//   .getElementById("prevScorePage")
+//   .addEventListener("click", changeScorePage, false);
+// document
+//   .getElementById("nextScorePage")
+//   .addEventListener("click", changeScorePage, false);
 
+/*
 document
   .getElementById("playScorePage")
   .addEventListener("click", scorePlayback, false);
 document
   .getElementById("stopScorePage")
   .addEventListener("click", scorePlayback, false);
+*/
 
 document
   .getElementById("playExpressions")
