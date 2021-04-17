@@ -159,7 +159,6 @@ let holeSep = 0;
 let holesInfo = {}; // Hole data, indexed by start tick (not pixel)
 let paintHoles = false; // Whether to draw in entire hole lane on roll
 let paintedHoles = {}; // key = ID, value = offtime tick
-//let backgroundOverlays = {}; // Maps hole IDs to [firstYpixel, lastYpixel]
 let horizPos = 0.5; // Hack to keep track of horizontal pan position of viewer
 let activeOnly = true; // When false, overlay all holes in viewer
 
@@ -336,6 +335,10 @@ const loadRecording = function (e, newRecordingId) {
 
   recordingSlug = recordings_data[currentRecordingId]["slug"];
   //currentRecording = midiData[recordingSlug];
+
+  clearOverlaysBeforeTick(0, true);
+  activeOnly = true;
+  document.getElementById("activeOnly").checked = true;
 
   initPlayer();
 
@@ -639,12 +642,12 @@ const processHoleAnalysis = function(data) {
 
 const toggleActiveOnly = function(event) {
   activeOnly = event.target.checked;
+  clearOverlaysBeforeTick(0,true);
   if (activeOnly) {
-    clearOverlaysBeforeTick(0,true);
-    // This would remove the roll image as "background"
-    //openSeadragon.world.getItemAt(0).setOpacity(0);
-  } else {
     //openSeadragon.world.getItemAt(0).setOpacity(1);
+  } else {
+    // This removes the roll image as "background"
+    //openSeadragon.world.getItemAt(0).setOpacity(0);
   }
   updateOverlays();
 }
@@ -1672,10 +1675,13 @@ const initOSD = function() {
     updateOverlays();
   });
 
-  openSeadragon.addHandler("zoom", () => {
+  openSeadragon.addHandler("zoom", (event) => {
     if (showRoll) {
       let center = openSeadragon.viewport.getCenter(true);
       horizPos = center.x;
+      if (!activeOnly && (event.zoom < 1)) {
+        openSeadragon.viewport.zoomTo(1);
+      }
       updateOverlays();
     }
   });
