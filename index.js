@@ -61,8 +61,12 @@ const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
 const SUSTAIN_LESS_KEY = "KeyB";
 const SUSTAIN_MORE_KEY = "KeyN";
 const SUSTAIN_LEVEL_DELTA = 5;
-const WELTE_RED_FIRST_NOTE = 11; // TRACKER_HOLE value of piano key 1 (MIDI 21) for Welte reds
-const POPULAR_FIRST_NOTE = 5; // Ditto for 88-note rolls
+const WELTE_MIDI_START = 14; // TRACKER_HOLE 1 = MIDI 15
+const WELTE_RED_FIRST_NOTE = 28;
+const WELTE_RED_LAST_NOTE = 103;
+const WELTE_RED_NOTES_START = 11; // For overlays from MIDI numbers alone
+const POPULAR_MIDI_START = 16; // TRACKER_HOLE 1 = MIDI 16
+const POPULAR_NOTES_START = 5; // For overlays from MIDI numbers alone
 //const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 
 //let midiData = require("./mididata.json");
@@ -153,7 +157,7 @@ let firstHolePx = 0;
 let scrollTimer = null;
 let viewerId = uuidv4();
 let overlayPersist = 100; // # ticks = pixels on original roll image
-let holeOverlays = {}; // key = offtime tick, value = div
+let holeOverlays = {}; // value = div, key is offtime
 let holeWidth = 0;
 let holeSep = 0;
 let holesInfo = {}; // Hole data, indexed by start tick (not pixel)
@@ -161,6 +165,7 @@ let paintHoles = false; // Whether to draw in entire hole lane on roll
 let paintedHoles = {}; // key = ID, value = offtime tick
 let horizPos = 0.5; // Hack to keep track of horizontal pan position of viewer
 let activeOnly = true; // When false, overlay all holes in viewer
+let blankRoll = false; // Hides roll image, so only overlays are visible
 
 /* Defaults for time-based acceleration emulation */
 let rollPPI = 300.0;
@@ -172,7 +177,6 @@ let noScore = true;
 let scoreStorage = null;
 let recordingSlug = null;
 let scorePages = [];
-let scoreMIDI = [];
 let scorePlaying = false;
 let currentScorePage = 1;
 let highlightedNotes = [];
@@ -246,61 +250,6 @@ const initScoreViewer = function () {
 
     document.getElementById("scorePage").innerHTML =
       scorePages[currentScorePage - 1];
-
-    // scoreMIDI = "data:audio/midi;base64," + vrvToolkit.renderToMIDI();
-
-    // /* Instantiate the score MIDI player */
-    // scorePlayer = new MidiPlayer.Player();
-
-    // scorePlayer.on("midiEvent", function (e) {
-    //   const timeMultiplier =
-    //     parseFloat(scorePlayer.getSongTime() * 1000.0) /
-    //     parseFloat(scorePlayer.totalTicks);
-
-    //   let vrvTime = parseInt(e.tick * timeMultiplier) + 1;
-
-    //   let elementsattime = vrvToolkit.getElementsAtTime(vrvTime);
-
-    //   let lastNoteIds = highlightedNotes;
-    //   if (lastNoteIds && lastNoteIds.length > 0) {
-    //     lastNoteIds.forEach((noteId) => {
-    //       let noteElt = document.getElementById(noteId);
-    //       if (noteElt) {
-    //         noteElt.setAttribute("style", "fill: #000");
-    //       }
-    //     });
-    //   }
-
-    //   if (elementsattime.page > 0) {
-    //     if (elementsattime.page != currentScorePage) {
-    //       currentScorePage = elementsattime.page;
-    //       document.getElementById("scorePage").innerHTML =
-    //         scorePages[currentScorePage - 1];
-    //     }
-    //   }
-
-    //   let noteIds = elementsattime.notes;
-    //   if (noteIds && noteIds.length > 0) {
-    //     noteIds.forEach((noteId) => {
-    //       let noteElt = document.getElementById(noteId);
-    //       if (noteElt) {
-    //         noteElt.setAttribute("style", "fill: #c00");
-    //       }
-    //     });
-    //   }
-    //   highlightedNotes = noteIds;
-
-    //   midiEvent(e);
-    // });
-
-    // scorePlayer.on("endOfFile", function () {
-    //   console.log("END OF FILE");
-    //   scorePlaying = false;
-    //   // Do something when end of the file has been reached.
-    // });
-
-    // // Load MIDI data
-    // scorePlayer.loadDataUri(scoreMIDI);
   }
 
 }
@@ -341,6 +290,8 @@ const loadRecording = function (e, newRecordingId) {
   }
   activeOnly = true;
   document.getElementById("activeOnly").checked = true;
+  blankRoll = false;
+  document.getElementById("blankRoll").checked = false;
 
   initPlayer();
 
@@ -515,11 +466,13 @@ const initPlayer = function () {
     document.getElementById("playExpressions").disabled = false;
     document.getElementById("useRollPedaling").disabled = false;
     document.getElementById("activeOnly").disabled = false;
+    document.getElementById("blankRoll").disabled = false;
     if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
       scrollUp = true;
       document.getElementById("playExpressions").disabled = true;
       document.getElementById("useRollPedaling").disabled = true;
       document.getElementById("activeOnly").disabled = true;
+      document.getElementById("blankRoll").disabled = true;
     }
 
     firstHolePx = parseInt(rollMetadata["FIRST_HOLE"]);
@@ -620,6 +573,23 @@ const processHoleAnalysis = function(data) {
 
   holesData.forEach(hole => {
 
+    // AREA: "1171px"
+    // CENTROID_COL: "482.535px"
+    // CENTROID_ROW: "13454.9px"
+    // CIRCULARITY: "0.72"
+    // HPIXCOR: "3.6px"
+    // ID: "K0_N1"
+    // MAJOR_AXIS: "0deg"
+    // MIDI_KEY: "-1"
+    // NOTE_ATTACK: "13426px"
+    // OFF_TIME: "13483px"
+    // ORIGIN_COL: "472px"
+    // ORIGIN_ROW: "13426px"
+    // PERIMETER: "142.512px"
+    // TRACKER_HOLE: "13"
+    // WIDTH_COL: "22px"
+    // WIDTH_ROW: "57px"
+
     if (hole['NOTE_ATTACK'] === undefined) {
       // This happens rarely; not sure why
       return;
@@ -645,13 +615,18 @@ const processHoleAnalysis = function(data) {
 const toggleActiveOnly = function(event) {
   activeOnly = event.target.checked;
   clearOverlaysBeforeTick(0,true);
-  if (activeOnly) {
-    //openSeadragon.world.getItemAt(0).setOpacity(1);
-  } else {
-    // This removes the roll image as "background"
-    //openSeadragon.world.getItemAt(0).setOpacity(0);
-  }
   updateOverlays();
+}
+
+const toggleBlankRoll = function(event) {
+  blankRoll = event.target.checked;
+  if (blankRoll) {
+    // This hides the roll image as "background"
+    // (actually stops tiles from being loaded)
+    openSeadragon.world.getItemAt(0).setOpacity(0);
+  } else {
+    openSeadragon.world.getItemAt(0).setOpacity(1);
+  }
 }
 
 const updateOverlays = function(tick) {
@@ -717,6 +692,7 @@ const clearOverlaysOutsideWindow = function() {
   }
 
   // Delete all overlays that don't overlap with the current viewer window
+  // XXX This only removes an overlay if its last tick is outside the window
   Object.keys(paintedHoles).forEach(holeId => {
     const holeOffTick = paintedHoles[holeId];
     if ((holeOffTick < firstTick) || (holeOffTick > lastTick)) {
@@ -742,6 +718,8 @@ const overlayHolesAtTick = function (tick) {
     return;
   }
 
+  //console.log("Drawing holes at tick",tick);
+
   holesInfo[tick].forEach(hole => {
 
     const holeId = hole['ID'];
@@ -758,23 +736,26 @@ const overlayHolesAtTick = function (tick) {
     //const rowWidth = parseFloat(hole['WIDTH_ROW'].replace('px',''));
     const offPx = parseInt(hole['OFF_TIME'].replace('px', ''));
     let offTime = offPx - firstHolePx;
-    let midiNumber = parseInt(hole['TRACKER_HOLE']) - WELTE_RED_FIRST_NOTE + 21;
+    let midiNumber = parseInt(hole['TRACKER_HOLE']) + WELTE_MIDI_START;
     if (scrollUp) {
       offTime = firstHolePx - offPx;
-      midiNumber = parseInt(hole['TRACKER_HOLE']) - POPULAR_FIRST_NOTE + 21;
+      midiNumber = parseInt(hole['TRACKER_HOLE']) - POPULAR_MIDI_START;
     }
-    const noteName = getNoteName(midiNumber);
     // Should be the same as lineTick - offTime
     const noteLength = offPx - pointY;
 
     let noteElt = document.createElement("div");
-    noteElt.title = noteName + " (" + holeId + ")";
-
-    //if (event.track <= 3) {
-    noteElt.classList.add('music-hole');
-    //} else {
-    //  noteElt.classList.add('control-hole')
-    //}
+    // XXX Rolls often don't use top end of keyboard;
+    // Need a constant value for these by roll type
+    if ((midiNumber >= WELTE_RED_FIRST_NOTE) && (midiNumber <= WELTE_RED_LAST_NOTE)) {
+      //console.log("NOTE",holeId,"TRACKER",hole['TRACKER_HOLE'],"DURATION",noteLength,"X",pointX,"Y",pointY);
+      noteElt.title = getNoteName(midiNumber) + " " + midiNumber.toString() + " (" + holeId + ") tick " + tick;
+      noteElt.classList.add('music-hole');
+    } else {
+      //console.log("CONTROL",holeId,"TRACKER",hole['TRACKER_HOLE'],"DURATION",noteLength,"X",pointX,"Y",pointY);
+      noteElt.title = midiNumber.toString() + " (" + holeId + ") tick " + tick;
+      noteElt.classList.add('control-hole');
+    }
 
     let rectViewport = openSeadragon.viewport.imageToViewportRectangle(pointX, pointY, colWidth, noteLength);
     openSeadragon.viewport.viewer.addOverlay(noteElt, rectViewport);
@@ -818,16 +799,17 @@ const overlayHolesInWindow = function() {
   // Show all overlays that overlap with the viewer window
   for (let tick=firstTick; tick<=lastTick; tick++) {
     if (tick in holesInfo) {
+      overlayHolesAtTick(tick);
+      // holesInfo[tick].forEach(hole => {
 
-      holesInfo[tick].forEach(hole => {
+      //   const holeId = hole['ID'];
 
-        const holeId = hole['ID'];
-
-        if (holeId in paintedHoles) {
-          return;
-        }
-        overlayHolesAtTick(tick);
-      });
+      //   if (holeId in paintedHoles) {
+      //     console.log(holeId,"already painted");
+      //     return;
+      //   }
+      //   overlayHolesAtTick(tick);
+      // });
     }
 
   }
@@ -858,7 +840,7 @@ const midiEvent = function (event) {
 
     // Note off
     // This ignores velcity 0 events on the higher control tracks -- not good?
-    if ((event.velocity === 0) && (event.track <= 3)) {
+    if ((event.velocity === 0) && (event.track >= 2) && (event.track <= 3)) {
 
       while (activeNotes.includes(parseInt(noteNumber))) {
         activeNotes.splice(activeNotes.indexOf(parseInt(noteNumber)), 1);
@@ -879,29 +861,8 @@ const midiEvent = function (event) {
         //console.log("VISUALIZING NOTE AT",event.tick,"NOTE",noteNumber,getNoteName(noteNumber));
 
         if (holesInfo[event.tick] !== undefined) {
-        
-          // AREA: "1171px"
-          // CENTROID_COL: "482.535px"
-          // CENTROID_ROW: "13454.9px"
-          // CIRCULARITY: "0.72"
-          // HPIXCOR: "3.6px"
-          // ID: "K0_N1"
-          // MAJOR_AXIS: "0deg"
-          // MIDI_KEY: "-1"
-          // NOTE_ATTACK: "13426px"
-          // OFF_TIME: "13483px"
-          // ORIGIN_COL: "472px"
-          // ORIGIN_ROW: "13426px"
-          // PERIMETER: "142.512px"
-          // TRACKER_HOLE: "13"
-          // WIDTH_COL: "22px"
-          // WIDTH_ROW: "57px"
-
-          /* Use hole analysis report data, if available */
-          updateOverlays(event.tick);
-
-          // clearOverlaysBeforeTick(event.tick);
-          // overlayHolesAtTick(event.tick);
+           /* Use hole analysis report data, if available */
+           updateOverlays(event.tick);
         
         } else {
 
@@ -915,10 +876,10 @@ const midiEvent = function (event) {
           let noteNudge = 0;
 
           if (rollMetadata["ROLL_TYPE"] !== "welte-red") {
-            noteOffset = noteNumber - POPULAR_FIRST_NOTE;
+            noteOffset = noteNumber - POPULAR_NOTES_START;
             noteNudge = holeSep / 2.0;
           } else {
-            noteOffset = noteNumber - WELTE_RED_FIRST_NOTE;
+            noteOffset = noteNumber - WELTE_RED_NOTES_START;
             noteNudge = holeSep;
           }
 
@@ -926,6 +887,7 @@ const midiEvent = function (event) {
 
           let pointX = noteOffset * holeSep + noteNudge;
 
+          // This will be overridden almost always
           let offTime = event.tick + overlayPersist;
 
           if ((notesMap[event.tick] !== undefined ) && (notesMap[event.tick][noteNumber] !== undefined)) {
@@ -1082,18 +1044,6 @@ const playPausePlayback = function () {
     playState = "paused";
   } else {
     // Play
-    if (showRoll) {
-      //openSeadragon.viewport.zoomTo(HOME_ZOOM);
-      if (playState == "stopped") {
-        // If we want this behavior (not panning back to the beginning
-        // after a stop until the Play button is pressed), note that it
-        // may be the case that sometimes the first note or two is lost
-        // during the scrollback. The foolproof solution would be to
-        // use an event listener to wait until the scroll is completed
-        // before starting playback, but maybe it's not necessary...
-        //panViewportToTick(0);
-      }
-    }
     activeNotes.forEach((noteNumber) => {
       keyboardToggleKey(noteNumber, false);
     });
@@ -1304,10 +1254,6 @@ const pressSustainPedal = function (pedalInput) {
     }
   }
   
-  // XXX how to accommodate changes in pedaling levels between on and off?
-  //if (sustainPedalOn) {
-  //  releaseSustainPedal();
-  //}
   //console.log("SUSTAIN ON");
   if (!sustainPedalOn) {
     piano.pedalDown();
@@ -1551,7 +1497,6 @@ const toggleScore = function (event) {
       scoreStorage = scoreNode.cloneNode(true);
       scoreNode.remove();
     }
-    //scorePlayer = null;
   }
 }
 
@@ -1716,7 +1661,6 @@ Promise.all([loadPiano]).then(() => {
   console.log("Piano loaded");
   document.getElementById("playPause").disabled = false;
   keyboard.enable();
-  //document.getElementById("playScorePage").disabled = false;
   globalPiano = piano;
 });
 
@@ -1758,9 +1702,7 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
   }
 
   document.getElementById("playPause").disabled = true;
-  //document.getElementById("playScorePage").disabled = true;
   //document.getElementById("stop").disabled = true;
-  //document.getElementById("stopScorePage").disabled = true;
   globalPiano.dispose();
 
   piano = new Piano({
@@ -1780,9 +1722,7 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
     });
 
     document.getElementById("playPause").disabled = false;
-    //document.getElementById("playScorePage").disabled = false;
     //document.getElementById("stop").disabled = false;
-    //document.getElementById("stopScorePage").disabled = false;
 
     globalPiano = piano;
     if (wasPlaying && (playState === "paused")) {
@@ -1846,22 +1786,6 @@ document
   .getElementById("progressSlider")
   .addEventListener("input", skipToProgress, false);
 
-// document
-//   .getElementById("prevScorePage")
-//   .addEventListener("click", changeScorePage, false);
-// document
-//   .getElementById("nextScorePage")
-//   .addEventListener("click", changeScorePage, false);
-
-/*
-document
-  .getElementById("playScorePage")
-  .addEventListener("click", scorePlayback, false);
-document
-  .getElementById("stopScorePage")
-  .addEventListener("click", scorePlayback, false);
-*/
-
 document
   .getElementById("playExpressions")
   .addEventListener("click", toggleExpressions, false);
@@ -1877,6 +1801,10 @@ document
 document
   .getElementById("activeOnly")
   .addEventListener("click", toggleActiveOnly, false);
+
+document
+  .getElementById("blankRoll")
+  .addEventListener("click", toggleBlankRoll, false);
 
 document
   .getElementById("accentButton")

@@ -112,10 +112,6 @@
           <input type="checkbox" id="useMidiTempos" name="useMidiTemposCheckbox" checked>
           <label for="useMidiTempos">Emulate roll acceleration</label>
         </div>
-        <div>
-          <input type="checkbox" id="activeOnly" name="activeOnlyCheckbox" checked>
-          <label for="activeOnly">Highlight active holes only</label>
-        </div>
       </div>
       <div><strong>Tempo</strong> (w-/e+)<br>0
         <input type="range" min="0" max="180" step="1" class="slider" id="tempoSlider" list="tempoticks">
@@ -161,13 +157,19 @@
       </div>
     </div>
     <div class="flex-container main-row" display="flex">
-      <div>Bass volume:
-        <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
-        <output for="leftVolumeSlider" id="leftVolume"></output>
+      <div>
+        <div>Bass volume:
+          <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
+          <output for="leftVolumeSlider" id="leftVolume"></output>
+        </div>
+        <div>Treble volume:
+          <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
+          <output for="rightVolumeSlider" id="rightVolume"></output>
+        </div>
+        <div>
+          NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
+        </div>
       </div>
-      <!-- <div>
-        NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
-      </div> -->
       <div><strong>Sustain pedal</strong> (b-/n+)<br>0
         <input type="range" min="0" max="127" step="1" class="slider" name="sustainLevel" id="sustainLevelSlider" list="pedalticks">
           <datalist id="pedalticks">
@@ -184,9 +186,15 @@
         </input>127<br>
         Value: <output for="sustainLevelSlider" id="sustainLevel"></output>
       </div>
-      <div>Treble volume:
-        <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
-        <output for="rightVolumeSlider" id="rightVolume"></output>
+      <div>
+        <div>
+          <input type="checkbox" id="activeOnly" name="activeOnlyCheckbox" checked>
+          <label for="activeOnly">Highlight active holes only</label>
+        </div>
+        <div>
+          <input type="checkbox" id="blankRoll" name="blankRollCheckbox">
+          <label for="blankRoll">Blank roll background</label>
+        </div>
       </div>
     </div>
   </div>
