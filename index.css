@@ -114,6 +114,7 @@ h3 {
 .music-hole {
 	background-color: rgb(224, 8, 232);
 	border: 0px;
+	opacity: .7;
 } 
 
 @-webkit-keyframes music-hole-glow { 
@@ -131,6 +132,7 @@ h3 {
 .control-hole {
 	background-color: #2edf12;
 	border: 0px;
+	opacity: .7;
 }
 
 @-webkit-keyframes control-hole-glow { 
