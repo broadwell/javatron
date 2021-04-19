@@ -151,6 +151,13 @@ let volAccentModDelta = 1;
 let pedalTempoModDelta = 1;
 let useMidiTempos = true;
 
+let midiOut = null; // MIDI output device (should be at most one)
+const MIDI_NOTE_ON = 0x90;
+const MIDI_NOTE_OFF = 0x80;
+const MIDI_CONTROL = 0xB0;
+const MIDI_SUSTAIN = 0x40;
+const MIDI_SOFT = 0x43;
+
 let showRoll = false;
 let openSeadragon = null;
 let firstHolePx = 0;
@@ -202,11 +209,17 @@ const startNote = function (noteNumber, velocity) {
     piano.keyDown({ midi: noteNumber, velocity: velocity });
   }
   keyboardToggleKey(noteNumber, true);
+  if (midiOut) {
+    midiOut.send([MIDI_NOTE_ON, noteNumber, velocity]);
+  }
 };
 
 const stopNote = function (noteNumber) {
   piano.keyUp({ midi: noteNumber });
   keyboardToggleKey(noteNumber, false);
+  if (midiOut) {
+    midiOut.send([MIDI_NOTE_OFF, noteNumber, 0]);
+  }
 };
 
 const initScoreViewer = function () {
@@ -275,8 +288,7 @@ const loadRecording = function (e, newRecordingId) {
   activeNotes = [];
   highlightedNotes = [];
   releaseSustainPedal();
-  softPedalOn = false;
-  document.getElementById("softPedal").classList.remove("pressed");
+  releaseSoftPedal();
 
   console.log("loading recording ID", currentRecordingId);
 
@@ -958,12 +970,10 @@ const midiEvent = function (event) {
     } else if (event.number == 67 && !softPedalLocked && useRollPedaling) {
       if (event.value == 127) {
         //console.log("SOFT ON");
-        softPedalOn = true;
-        document.getElementById("softPedal").classList.add("pressed");
+        pressSoftPedal();
       } else if (event.value == 0) {
         //console.log("SOFT OFF");
-        softPedalOn = false;
-        document.getElementById("softPedal").classList.remove("pressed");
+        releaseSoftPedal();
       }
     } else if (event.number == 10) {
       // Controller Change number=10 sets the "panning position",
@@ -1065,8 +1075,7 @@ const stopPlayback = function (noRoll) {
     playState = "stopped";
     activeNotes = [];
     releaseSustainPedal();
-    softPedalOn = false;
-    document.getElementById("softPedal").classList.remove("pressed");
+    releaseSoftPedal();
     if (showRoll && openSeadragon) {
       clearOverlaysBeforeTick(samplePlayer.getCurrentTick(), true);
       openSeadragon.viewport.zoomTo(HOME_ZOOM);
@@ -1258,6 +1267,8 @@ const pressSustainPedal = function (pedalInput) {
   if (!sustainPedalOn) {
     piano.pedalDown();
     //piano.pedalDown(parseFloat(sustainLevel) / 127.0);
+    console.log("Sending MIDI sustain")
+    midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, 127]);
   }
   sustainPedalOn = true;
   document.getElementById("sustainPedal").classList.add("pressed");
@@ -1265,10 +1276,23 @@ const pressSustainPedal = function (pedalInput) {
 
 const releaseSustainPedal = function () {
   piano.pedalUp();
+  midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, 0]);
   sustainPedalOn = false;
   //console.log("SUSTAIN OFF");
   document.getElementById("sustainPedal").classList.remove("pressed");
 };
+
+const pressSoftPedal = function () {
+  midiOut.send([MIDI_CONTROL, MIDI_SOFT, 127]);
+  softPedalOn = true;
+  document.getElementById("softPedal").classList.add("pressed");
+}
+
+const releaseSoftPedal = function () {
+  midiOut.send([MIDI_CONTROL, MIDI_SOFT, 0]);
+  softPedalOn = false;
+  document.getElementById("softPedal").classList.remove("pressed");
+}
 
 function togglePedalLock(event) {
   const pedalName = event.target.name;
@@ -1283,13 +1307,12 @@ function togglePedalLock(event) {
     }
   } else if (pedalName === "soft") {
     softPedalLocked = !softPedalLocked;
-    softPedalOn = softPedalLocked;
-    if (softPedalOn) {
+    if (softPedalLocked) {
       //console.log("SOFT ON");
-      document.getElementById("softPedal").classList.add("pressed");
+      pressSoftPedal();
     } else {
       //console.log("SOFT OFF");
-      document.getElementById("softPedal").classList.remove("pressed");
+      releaseSoftPedal();
     }
   }
 }
@@ -1448,8 +1471,7 @@ const toggleRollPedaling = function (event) {
   useRollPedaling = event.target.checked;
   if (!useRollPedaling) {
     releaseSustainPedal();
-    softPedalOn = false;
-    document.getElementById("softPedal").classList.remove("pressed");
+    releaseSoftPedal();
   }
 }
 
@@ -1534,8 +1556,7 @@ const scorePlayback = function (e) {
     activeNotes = [];
     currentProgress = 0;
     releaseSustainPedal();
-    softPedalOn = false;
-    document.getElementById("softPedal").classList.remove("pressed");
+    releaseSoftPedal();
 
     if (highlightedNotes && highlightedNotes.length > 0) {
       highlightedNotes.forEach((noteId) => {
@@ -1869,14 +1890,12 @@ const keyboardKeyControl = function(event) {
         if (softPedalOn) {
           break;
         }
-        softPedalOn = true;
-        document.getElementById("softPedal").classList.add("pressed");
+        pressSoftPedal();
       } else {
         if (!softPedalOn) {
           break;
         }
-        softPedalOn = false;
-        document.getElementById("softPedal").classList.remove("pressed");
+        releaseSoftPedal();
       }
       break;
     case TEMPO_FASTER_KEY:
@@ -1915,32 +1934,40 @@ window.addEventListener("keyup", function(event) {
 if (navigator.requestMIDIAccess) {
   console.log('This browser supports WebMIDI!');
   navigator.requestMIDIAccess()
-    .then(function(access) {
+    .then(function(midi) {
 
       // Get lists of available MIDI controllers
       //const inputs = access.inputs.values();
       //const outputs = access.outputs.values();
 
-      Array.from(access.inputs).forEach(input => {
+      Array.from(midi.inputs).forEach(input => {
         input[1].onmidimessage = (msg) => {
           if (msg.data.length > 1) {
             // 176 probably = control change; 64 = sustain pedal
             // SUSTAIN PEDAL MSGS ARE 176, 64, 0-127
             // KEYPRESS MSGS ARE 144, [MIDI_NUMBER], 0-100?
-            if ((msg.data[0] == 176) && (msg.data[1] == 64)) {
+            if ((msg.data[0] == MIDI_CONTROL) && (msg.data[1] == MIDI_SUSTAIN)) {
               pressSustainPedal(parseInt(msg.data[2]));
-            } else if (msg.data[0] == 144) {
+            } else if (msg.data[0] == MIDI_NOTE_ON) {
               if (msg.data[2] == 0) {
                 midiNotePlayer(msg.data[1], false);
               } else {
                 midiNotePlayer(msg.data[1], true, msg.data[2]);
               }            
+            } else if (msg.data[0] == NOTE_OFF) {
+              midiNotePlayer(msg.data[1], false);
             }
           }
         }
       })
 
-      access.onstatechange = function(e) {
+      Array.from(midi.outputs).forEach(output => {
+        console.log(output);
+        midiOut = output[1];
+      });
+
+
+      midi.onstatechange = function(e) {
         // Print information about the (dis)connected MIDI controller
         console.log(e.port.name, e.port.manufacturer, e.port.state);
       };
