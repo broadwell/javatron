@@ -6,14 +6,6 @@
   <div class="App">
     <div class="flex-container main-row">
       <div textAlign="left">
-        <strong>Roll Title: </strong><span id="title"></span> <br />
-        <strong>Performer: </strong><span id="performer"></span> <br />
-        <strong>Composer: </strong><span id="composer"></span> <br />
-        <strong>Label: </strong><span id="label"></span> <br />
-        <strong>PURL: </strong><span id="purl"></span> <br />
-        <strong>Call No: </strong><span id="callno"></span> <br />
-      </div>
-      <div>
         <div>
           <label for="recordings">
             Recording:
@@ -25,6 +17,18 @@
           </select>
         </div>
         <hr />
+        <strong>Roll Title: </strong><span id="title"></span> <br />
+        <strong>Performer: </strong><span id="performer"></span> <br />
+        <strong>Composer: </strong><span id="composer"></span> <br />
+        <strong>Label: </strong><span id="label"></span> <br />
+        <strong>PURL: </strong><span id="purl"></span> <br />
+        <!-- <strong>Call No: </strong><span id="callno"></span> <br /> -->
+        <hr />
+        <div>Progress:
+          <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
+        </div>
+      </div>
+      <div>
         <div>
           <input type="checkbox" id="showRoll" name="showRollCheckbox">
           <label for="showRoll">Show piano roll</label>
@@ -34,10 +38,6 @@
           <label for="showScore">Show sheet music (if available)</label>
         </div>
         <hr />
-        <div>Progress:
-          <input type="range" min="0" max="1" step=".01" value=0 class="slider" id="progressSlider" /><span id="progressPct"></span>
-        </div>
-        <!--
         <div id="volumes">
           <strong>Sample volumes:</strong>
           <div class="volInput">
@@ -66,7 +66,6 @@
             <input name="velocities" id="velocitiesSlider" type="range" min="1" max="16" value="4" />
           </div>
         </div>
-        -->
       </div>
     </div>
     <div class="flex-row-left main-row">
@@ -75,13 +74,13 @@
       </div>
       <div id="scoreWrapper">
         <div name="score" class="score">
-          <div class="flex-row-left indented-row">
+          <!-- <div class="flex-row-left indented-row">
             <span>Score playback:</span>
             <button id="playScorePage" name="playScore">Start</button>
             <button id="stopScorePage" name="stopScore">Stop</button>
-          </div>
+          </div> -->
           <div class="flex-row-left indented-row">
-            <span>Score pages:</span>
+            <span>Page:</span>
             <button id="prevScorePage" name="prevPage">Prev</button>
             <button id="nextScorePage" name="nextPage">Next</button>
           </div>
@@ -158,13 +157,19 @@
       </div>
     </div>
     <div class="flex-container main-row" display="flex">
-      <div>Bass volume:
-        <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
-        <output for="leftVolumeSlider" id="leftVolume"></output>
+      <div>
+        <div>Bass volume:
+          <input type="range" min="0" max="4" step=".1" class="slider" name="leftVolume" id="leftVolumeSlider" />
+          <output for="leftVolumeSlider" id="leftVolume"></output>
+        </div>
+        <div>Treble volume:
+          <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
+          <output for="rightVolumeSlider" id="rightVolume"></output>
+        </div>
+        <div>
+          NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
+        </div>
       </div>
-      <!-- <div>
-        NOTE: Shift keys fine-tune vol,<br>tempo, accents and pedaling
-      </div> -->
       <div><strong>Sustain pedal</strong> (b-/n+)<br>0
         <input type="range" min="0" max="127" step="1" class="slider" name="sustainLevel" id="sustainLevelSlider" list="pedalticks">
           <datalist id="pedalticks">
@@ -181,9 +186,15 @@
         </input>127<br>
         Value: <output for="sustainLevelSlider" id="sustainLevel"></output>
       </div>
-      <div>Treble volume:
-        <input type="range" min="0" max="4" step=".1" class="slider" name="rightVolume" id="rightVolumeSlider" />
-        <output for="rightVolumeSlider" id="rightVolume"></output>
+      <div>
+        <div>
+          <input type="checkbox" id="activeOnly" name="activeOnlyCheckbox" checked>
+          <label for="activeOnly">Highlight active holes only</label>
+        </div>
+        <div>
+          <input type="checkbox" id="blankRoll" name="blankRollCheckbox">
+          <label for="blankRoll">Blank roll background</label>
+        </div>
       </div>
     </div>
   </div>
