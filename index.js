@@ -120,7 +120,6 @@ const recordings_data = {
 let currentRecording = null;
 let rollMetadata = {};
 let samplePlayer = null; // the MIDI player
-let scorePlayer = null;
 let playState = "stopped";
 let totalTicks = 0;
 let currentTick = 0;
@@ -152,8 +151,8 @@ let pedalTempoModDelta = 1;
 let useMidiTempos = true;
 
 let midiOut = null; // MIDI output device (should be at most one)
-const MIDI_NOTE_ON = 0x90; // 0x90 is the event code, 1 is the channel
-const MIDI_NOTE_OFF = 0x80; // 0x80 is the event code, 1 is the channel
+const MIDI_NOTE_ON = 0x90; // = the event code (0x90) + channel (0)
+const MIDI_NOTE_OFF = 0x80; // = the event code (0x80) + channel (0) is the event code + 
 const MIDI_CONTROL = 0xB0;
 const MIDI_SUSTAIN = 0x40;
 const MIDI_SOFT = 0x43;
@@ -184,9 +183,7 @@ let noScore = true;
 let scoreStorage = null;
 let recordingSlug = null;
 let scorePages = [];
-let scorePlaying = false;
 let currentScorePage = 1;
-let highlightedNotes = [];
 let currentRecordingId = Object.keys(recordings_data)[0];
 let vrvToolkit = null;
 
@@ -223,8 +220,6 @@ const stopNote = function (noteNumber) {
 
 const initScoreViewer = function () {
 
-  scorePlayer = null;
-
   if (recordingSlug in scoreData) {
     noScore = false;
     document.getElementById("showScore").disabled = false;
@@ -241,6 +236,7 @@ const initScoreViewer = function () {
         scoreNode.remove();
       }
     }
+    document.getElementById("scoreWrapper").hidden = true;
     return;
   }
 
@@ -249,6 +245,7 @@ const initScoreViewer = function () {
   if (showScore && !noScore) {
 
     if (scoreStorage) {
+      document.getElementById("scoreWrapper").hidden = false;
       document.getElementById("scoreWrapper").appendChild(scoreStorage);
     }
 
@@ -285,7 +282,6 @@ const loadRecording = function (e, newRecordingId) {
     stopNote(noteNumber);
   });
   activeNotes = [];
-  highlightedNotes = [];
   releaseSustainPedal();
   releaseSoftPedal();
 
@@ -515,7 +511,7 @@ const initPlayer = function () {
 
   });
 
-  samplePlayer.on("playing", (currentTick) => {
+  samplePlayer.on("playing", () => {
     // Do something while player is playing
     // (this is repeatedly triggered within the play loop)
   });
@@ -811,20 +807,8 @@ const overlayHolesInWindow = function() {
   for (let tick=firstTick; tick<=lastTick; tick++) {
     if (tick in holesInfo) {
       overlayHolesAtTick(tick);
-      // holesInfo[tick].forEach(hole => {
-
-      //   const holeId = hole['ID'];
-
-      //   if (holeId in paintedHoles) {
-      //     console.log(holeId,"already painted");
-      //     return;
-      //   }
-      //   overlayHolesAtTick(tick);
-      // });
     }
-
   }
-
 }
 
 const midiEvent = function (event) {
@@ -1010,12 +994,6 @@ const applyTempoChange = function(inputTempo) {
     (inputTempo - baseTempo) / baseTempo;
   playbackTempo = sliderTempo * tempoRatio;
 
-  if (scorePlayer && scorePlaying) {
-    scorePlayer.pause();
-    scorePlayer.setTempo(playbackTempo);
-    scorePlayer.play();
-  }
-
   if (samplePlayer.isPlaying()) {
     samplePlayer.pause();
     samplePlayer.setTempo(playbackTempo);
@@ -1042,9 +1020,6 @@ const toggleMidiTempos = function(event) {
 }
 
 const playPausePlayback = function () {
-  if (scorePlaying) {
-    return;
-  }
 
   if (samplePlayer.isPlaying()) {
     // Pause
@@ -1091,8 +1066,6 @@ const playerProgress = function () {
       panViewportToTick(currentTick);
       return;
     }
-  } else if (scorePlayer && scorePlaying) {
-    currentTick = scorePlayer.getCurrentTick();
   }
   updateProgress();
 }
@@ -1111,7 +1084,7 @@ const updateProgress = function () {
 };
 
 const skipTo = function (targetTick, targetProgress) {
-  if (!(samplePlayer || scorePlayer)) {
+  if (!samplePlayer) {
     return;
   }
 
@@ -1121,21 +1094,6 @@ const skipTo = function (targetTick, targetProgress) {
   if (useMidiTempos) {
     const currentTempo = tempoMap.search(currentTick, currentTick)[0];
     applyTempoChange(currentTempo);
-  }
-
-  if (scorePlayer && scorePlaying) {
-    scorePlayer.pause();
-    scorePlayer.skipToTick(currentTick);
-    activeNotes.forEach((noteNumber) => {
-      keyboardToggleKey(noteNumber, false);
-    });
-    activeNotes = [];
-    currentProgress = playProgress;
-    scorePlayer.play();
-    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
-    updateProgress();
-
-    return;
   }
 
   const pedalsOn = pedalMap.search(currentTick, currentTick);
@@ -1159,9 +1117,6 @@ const skipTo = function (targetTick, targetProgress) {
 };
 
 const skipToPixel = function (pixelY) {
-  if (scorePlaying) {
-    return;
-  }
 
   let targetTick = pixelY - firstHolePx;
   if (scrollUp) {
@@ -1264,9 +1219,11 @@ const pressSustainPedal = function (pedalInput) {
   
   //console.log("SUSTAIN ON");
   if (!sustainPedalOn) {
-    piano.pedalDown();
-    //piano.pedalDown(parseFloat(sustainLevel) / 127.0);
-    midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, sustainLevel]);
+    //piano.pedalDown();
+    piano.pedalDown({ level: parseFloat(sustainLevel) / 127.0 });
+    if (midiOut) {
+      midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, sustainLevel]);
+    }
   }
   sustainPedalOn = true;
   document.getElementById("sustainPedal").classList.add("pressed");
@@ -1274,20 +1231,26 @@ const pressSustainPedal = function (pedalInput) {
 
 const releaseSustainPedal = function () {
   piano.pedalUp();
-  midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, 0]);
+  if (midiOut) {
+    midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, 0]);
+  }
   sustainPedalOn = false;
   //console.log("SUSTAIN OFF");
   document.getElementById("sustainPedal").classList.remove("pressed");
 };
 
 const pressSoftPedal = function () {
-  midiOut.send([MIDI_CONTROL, MIDI_SOFT, 127]);
+  if (midiOut) {
+    midiOut.send([MIDI_CONTROL, MIDI_SOFT, 127]);
+  }
   softPedalOn = true;
   document.getElementById("softPedal").classList.add("pressed");
 }
 
 const releaseSoftPedal = function () {
-  midiOut.send([MIDI_CONTROL, MIDI_SOFT, 0]);
+  if (midiOut) {
+    midiOut.send([MIDI_CONTROL, MIDI_SOFT, 0]);
+  }
   softPedalOn = false;
   document.getElementById("softPedal").classList.remove("pressed");
 }
@@ -1376,12 +1339,6 @@ const updateTempoSlider = function (event) {
   document.getElementById("tempo").value = sliderTempo + ' "bpm"';
 
   playbackTempo = sliderTempo * tempoRatio;
-
-  if (scorePlayer && scorePlaying) {
-    scorePlayer.pause();
-    scorePlayer.setTempo(playbackTempo);
-    scorePlayer.play();
-  }
 
   // If not paused during tempo change, player jumps back a bit on
   // shift to slower playback tempo, forward on shift to faster tempo.
@@ -1503,6 +1460,7 @@ const clearScrollTimer = function () {
 const toggleScore = function (event) {
   showScore = event.target.checked;
   if (showScore) {
+    document.getElementById("scoreWrapper").hidden = false;
     document.getElementById("scoreWrapper").appendChild(scoreStorage);
     initScoreViewer();
     document
@@ -1517,59 +1475,9 @@ const toggleScore = function (event) {
       scoreStorage = scoreNode.cloneNode(true);
       scoreNode.remove();
     }
+    document.getElementById("scoreWrapper").hidden = true;
   }
 }
-
-const scorePlayback = function (e) {
-  if (scorePlayer === null) {
-    return;
-  }
-
-  if (
-    e.target.name === "playScore" &&
-    !scorePlaying &&
-    !samplePlayer.isPlaying() &&
-    playState !== "paused"
-  ) {
-    activeNotes.forEach((noteNumber) => {
-      keyboardToggleKey(noteNumber, false);
-    });
-    scorePlaying = true;
-    currentScorePage = 1;
-    document.getElementById("scorePage").innerHTML =
-      scorePages[currentScorePage - 1];
-    activeNotes = [];
-    totalTicks = scorePlayer.totalTicks;
-    scrollTimer = setInterval(playerProgress, UPDATE_INTERVAL_MS);
-    scorePlayer.play();
-  } else if (e.target.name === "stopScore" && scorePlaying) {
-    scorePlaying = false;
-    scorePlayer.stop();
-    clearScrollTimer();
-
-    activeNotes.forEach((noteNumber) => {
-      keyboardToggleKey(noteNumber, false);
-    });
-
-    activeNotes = [];
-    currentProgress = 0;
-    releaseSustainPedal();
-    releaseSoftPedal();
-
-    if (highlightedNotes && highlightedNotes.length > 0) {
-      highlightedNotes.forEach((noteId) => {
-        let noteElt = document.getElementById(noteId);
-        if (noteElt) {
-          noteElt.setAttribute("style", "fill: #000");
-        }
-      });
-    }
-
-    highlightedNotes = [];
-
-    //totalTicks = samplePlayer.totalTicks;
-  }
-};
 
 const changeScorePage = function (e) {
 
@@ -1960,7 +1868,6 @@ if (navigator.requestMIDIAccess) {
       })
 
       Array.from(midi.outputs).forEach(output => {
-        console.log(output);
         midiOut = output[1];
       });
 
