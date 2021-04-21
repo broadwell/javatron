@@ -202,7 +202,7 @@ const startNote = function (noteNumber, volume) {
   let noteVelocity = Math.round(127.0 * volume);
 
   if (noteVelocity > 0) {
-    piano.keyDown({ midi: noteNumber, velocity: noteVelocity });
+    piano.keyDown({ midi: noteNumber, velocity: volume });
     if (midiOut) {
       midiOut.send([MIDI_NOTE_ON, noteNumber, noteVelocity]);
     }
@@ -1189,14 +1189,18 @@ const panViewportToTick = function (tick, resetZoom) {
 const pressSustainPedal = function (pedalInput) {
   if (pedalInput !== undefined) {
     if (!(pedalInput instanceof KeyboardEvent)) {
-      sustainLevel = pedalInput;
+      // Physical MIDI pedal input is of type int
+      sustainLevel = parseInt(pedalInput);
+      if (sustainLevel == 0) {
+        releaseSustainPedal();
+      }
     } else {
       if (pedalInput.type == "keydown") {
         if (pedalInput.code == SUSTAIN_LESS_KEY) {
           if (pedalInput.shiftKey) {
-            sustainLevel = Math.max(0, sustainLevel - 1);
+            sustainLevel = Math.max(1, sustainLevel - 1);
           } else {
-            sustainLevel = Math.max(0, sustainLevel - SUSTAIN_LEVEL_DELTA);
+            sustainLevel = Math.max(1, sustainLevel - SUSTAIN_LEVEL_DELTA);
           }
         } else if (pedalInput.code == SUSTAIN_MORE_KEY) {
           if (pedalInput.shiftKey) {
@@ -1204,29 +1208,26 @@ const pressSustainPedal = function (pedalInput) {
           } else {
             sustainLevel = Math.min(127, sustainLevel + SUSTAIN_LEVEL_DELTA);
           }
+        } else if (pedalInput.code == SUSTAIN_PEDAL_KEY) {
+          if (sustainLevel == 0) {
+            sustainLevel = 127;
+          }
         }
       }
     }
 
-    if (sustainLevel == 0) {
-      releaseSustainPedal();
-      return;
-    } else {
-      document.getElementById("sustainLevel").value = sustainLevel;
-      document.getElementById("sustainLevelSlider").value = sustainLevel;
-    }
+    document.getElementById("sustainLevel").value = sustainLevel;
+    document.getElementById("sustainLevelSlider").value = sustainLevel;
   }
   
-  //console.log("SUSTAIN ON");
-  if (!sustainPedalOn) {
-    //piano.pedalDown();
-    piano.pedalDown({ level: parseFloat(sustainLevel) / 127.0 });
-    if (midiOut) {
-      midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, sustainLevel]);
-    }
+  if (sustainLevel > 0) {
+    const sustainRatio = parseFloat(parseFloat(sustainLevel) / 127.0);
+    //console.log("PEDAL DOWN AT LEVEL",sustainRatio);
+    // level is only consequential if modified Piano is being used
+    piano.pedalDown({ level: sustainRatio });
+    sustainPedalOn = true;
+    document.getElementById("sustainPedal").classList.add("pressed");
   }
-  sustainPedalOn = true;
-  document.getElementById("sustainPedal").classList.add("pressed");
 };
 
 const releaseSustainPedal = function () {
@@ -1782,7 +1783,7 @@ const keyboardKeyControl = function(event) {
         if (sustainPedalOn) {
           break;
         }
-        pressSustainPedal();
+        pressSustainPedal(event);
         break;
       } else if (event.type == "keyup") {
         if (!sustainPedalOn) {
