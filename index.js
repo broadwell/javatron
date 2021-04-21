@@ -39,7 +39,7 @@ const FLAT_NOTES = [
   "Ab",
 ];
 const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are struck (usually)
-const DEFAULT_NOTE_VELOCITY = 33.0; // Only applies to manual keypresses and non-expression rolls
+const DEFAULT_NOTE_VELOCITY = 33; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
 const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
 const HOME_ZOOM = 1;
@@ -152,8 +152,8 @@ let pedalTempoModDelta = 1;
 let useMidiTempos = true;
 
 let midiOut = null; // MIDI output device (should be at most one)
-const MIDI_NOTE_ON = 0x90;
-const MIDI_NOTE_OFF = 0x80;
+const MIDI_NOTE_ON = 0x90; // 0x90 is the event code, 1 is the channel
+const MIDI_NOTE_OFF = 0x80; // 0x80 is the event code, 1 is the channel
 const MIDI_CONTROL = 0xB0;
 const MIDI_SUSTAIN = 0x40;
 const MIDI_SOFT = 0x43;
@@ -194,24 +194,23 @@ let scrollUp = false;
 
 let keyboard = null;
 
-const startNote = function (noteNumber, velocity) {
-  if (velocity === null) {
-    velocity = DEFAULT_NOTE_VELOCITY / 128.0;
-  }
+const startNote = function (noteNumber, volume) {
 
   if (accentOn) {
-    velocity = velocity * (ACCENT_BUMP * volAccentModDelta);
+    volume = volume * (ACCENT_BUMP * volAccentModDelta);
   }
 
-  velocity = Math.min(velocity, 1.0);
+  volume = Math.min(volume, 1.0);
 
-  if (velocity > 0) {
-    piano.keyDown({ midi: noteNumber, velocity: velocity });
+  let noteVelocity = Math.round(127.0 * volume);
+
+  if (noteVelocity > 0) {
+    piano.keyDown({ midi: noteNumber, velocity: noteVelocity });
+    if (midiOut) {
+      midiOut.send([MIDI_NOTE_ON, noteNumber, noteVelocity]);
+    }
   }
   keyboardToggleKey(noteNumber, true);
-  if (midiOut) {
-    midiOut.send([MIDI_NOTE_ON, noteNumber, velocity]);
-  }
 };
 
 const stopNote = function (noteNumber) {
@@ -1267,8 +1266,7 @@ const pressSustainPedal = function (pedalInput) {
   if (!sustainPedalOn) {
     piano.pedalDown();
     //piano.pedalDown(parseFloat(sustainLevel) / 127.0);
-    console.log("Sending MIDI sustain")
-    midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, 127]);
+    midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, sustainLevel]);
   }
   sustainPedalOn = true;
   document.getElementById("sustainPedal").classList.add("pressed");
@@ -1954,7 +1952,7 @@ if (navigator.requestMIDIAccess) {
               } else {
                 midiNotePlayer(msg.data[1], true, msg.data[2]);
               }            
-            } else if (msg.data[0] == NOTE_OFF) {
+            } else if (msg.data[0] == MIDI_NOTE_OFF) {
               midiNotePlayer(msg.data[1], false);
             }
           }
@@ -1965,7 +1963,6 @@ if (navigator.requestMIDIAccess) {
         console.log(output);
         midiOut = output[1];
       });
-
 
       midi.onstatechange = function(e) {
         // Print information about the (dis)connected MIDI controller
