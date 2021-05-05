@@ -9,9 +9,7 @@ import Bunzip from "seek-bzip";
 import { Buffer } from "buffer";
 import ATON from "aton";
 
-import Chart from 'chart.js';
-import zoomPlugin from 'chartjs-plugin-zoom';
-Chart.plugins.register(zoomPlugin);
+import * as d3 from "d3";
 
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = [
@@ -347,9 +345,11 @@ const initPlayer = function () {
 
     pedalMap = new IntervalTree();
     notesMap = {"open": {}}
-    pedalSeries = {labels: [0], datasets: [{label: "Sustain", data: [0], borderColor: "red", fill: false},
-                                          {label: "Soft", data: [0], borderColor: "blue", fill: false}
-                                         ]};
+
+    pedalsChart = null;
+
+    pedalSeries = [{"tick": 0, "sustain": 0, "soft": 0}];
+    let seriesTicks = [0];
 
     // Pedal events should be duplicated on each track, but best not to assume
     // this will always be the case. Assume however that the events are
@@ -373,11 +373,12 @@ const initPlayer = function () {
               sustainOn = false;
               pedalMap.insert(sustainStart, event.tick, "sustain");
             }
-            if (!pedalSeries.labels.includes(event.tick)) {
-              for (let i=pedalSeries.labels[pedalSeries.labels.length-1]+1; i<=event.tick; i += 100) {
-                pedalSeries.labels.push(i);
-                pedalSeries.datasets[0].data.push(sustainOn ? 1 : 0);
-                pedalSeries.datasets[1].data.push(softOn ? 1 : 0);
+            if (!seriesTicks.includes(event.tick)) {
+              // seriesTicks.push(event.tick);
+              // pedalSeries.push({"tick": event.tick, "sustain": sustainOn ? 1 : 0, "soft": softOn ? 1 : 0})
+              for (let i=seriesTicks[seriesTicks.length-1]+1; i<=event.tick; i += 100) {
+                seriesTicks.push(i);
+                pedalSeries.push({"tick": i, "sustain": sustainOn ? 0 : 1, "soft": softOn ? 0 : 1})
               }
             }
             // Soft pedal on/off
@@ -390,11 +391,12 @@ const initPlayer = function () {
               softOn = false;
               pedalMap.insert(softStart, event.tick, "soft");
             }
-            if (!pedalSeries.labels.includes(event.tick)) {
-              for (let i=pedalSeries.labels[pedalSeries.labels.length-1]+1; i<=event.tick; i+= 100) {
-                pedalSeries.labels.push(i);
-                pedalSeries.datasets[0].data.push(sustainOn ? 1 : 0);
-                pedalSeries.datasets[1].data.push(softOn ? 1 : 0);
+            if (!seriesTicks.includes(event.tick)) {
+              // seriesTicks.push(event.tick);
+              // pedalSeries.push({"tick": event.tick, "sustain": sustainOn ? 1 : 0, "soft": softOn ? 1 : 0})
+              for (let i=seriesTicks[seriesTicks.length-1]+1; i<=event.tick; i += 100) {
+                seriesTicks.push(i);
+                pedalSeries.push({"tick": i, "sustain": sustainOn ? 0 : 1, "soft": softOn ? 0 : 1})
               }
             }
           }
@@ -430,15 +432,25 @@ const initPlayer = function () {
 
     totalTicks = samplePlayer.totalTicks;
 
-    //pedalSeries.push({x: totalTicks, sustain: 0, soft: 00});
-    if (!pedalSeries.labels.includes(totalTicks)) {
-      for (let i=pedalSeries.labels[pedalSeries.labels.length-1]+1; i<=totalTicks; i+=100) {
-        pedalSeries.labels.push(i);
-        pedalSeries.datasets[0].data.push(0);
-        pedalSeries.datasets[1].data.push(0);
+    if (!seriesTicks.includes(totalTicks)) {
+      // seriesTicks.push(totalTicks);
+      // pedalSeries.push({"tick": totalTicks, "sustain": 0, "soft": 0})
+      for (let i=seriesTicks[seriesTicks.length-1]+1; i<=totalTicks; i += 100) {
+        seriesTicks.push(i);
+        pedalSeries.push({"tick": i, "sustain": 0, "soft": 0})
       }
     }
-    console.log(pedalSeries);
+
+    if (document.getElementById("pedalsChart").hasChildNodes()) {
+      document.getElementById("pedalsChart").children[0].remove();
+      document.getElementById("pedalsChart").classList.remove("pedal-chart");
+    }
+    if (!scrollUp) {
+      pedalsChart = initPedalPlot();
+      if (showRoll) {
+        document.getElementById("pedalsChart").classList.add("pedal-chart");
+      }
+    }
 
     let sortedTempoChanges = tempoChanges.sort(function(a, b) {
       return a[0] - b[0];
@@ -542,8 +554,6 @@ const initPlayer = function () {
     currentTick = 0;
     playerProgress();
 
-    initPedalPlot();
-
   });
 
   samplePlayer.on("playing", () => {
@@ -608,69 +618,60 @@ const initPlayer = function () {
 
 const initPedalPlot = function() {
 
-  const cfg = {
-    type: 'line',
-    data: pedalSeries,
-    options: {
-      pointRadius: 1,
-      pointStyle: 'circle',
-      borderWidth: 1,
-      legend: {
-        display: false
-      },
-      responsive: true,
-      spanGaps: true,
-      title: {
-        display: false,
-        text: "Pedaling events"
-      },
-      scales: {
-        yAxes: [{
-          ticks: {
-            display: false
-          }
-        }],
-        xAxes: [{
-          ticks: {
-            display: false
-          }
-        }]
-      },
-      plugins: {
-        zoom: {
-          zoom: {
-            enabled: true,
-            mode: 'x',
-          },
-          pan: {
-            enabled: true,
-            mode: 'x',
-          }
-        }
-      }
-    }
-  }
+  const margin = {top: 10, right: 10, bottom: 10, left: 10},
+    width = 1000 - margin.left - margin.right,
+    height = 100 - margin.top - margin.bottom;
 
-  pedalsChart = new Chart(document.getElementById('pedalsChart'), cfg);
+  let svg = d3.select("#pedalsChart")
+  .append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform",
+          "translate(" + margin.left + "," + margin.top + ")");
 
-  pedalsChart.setZoom = function(min, max) {
-    console.log("setting X zoom to",min,max);
-    console.log(pedalsChart.scales);
-    let xScale = pedalsChart.scales['x-axis-0'];
-    let tickOptions = xScale.options.ticks;
-    if (tickOptions) {
-      let labels = xScale.chart.data.labels;
-      xScale.options.ticks.min = Math.max(min,0);
-      xScale.options.ticks.max = max;
-    }
-    // helpers.each(chartInstance.data.datasets, function(dataset, id) {
-		// 	dataset._meta = null;
-		// });
+  // Add X axis
+  let x = d3.scaleLinear()
+    .domain(d3.extent(pedalSeries, function(d) { return +d.tick; }))
+    .range([ 0, width ]);
+  let xAxis = svg.append("g")
+    .attr("transform", "translate(0," + height + ")")
+    //.call(d3.axisBottom(x));
+  
+  // Add Y axis
+  let y = d3.scaleLinear()
+    .domain([0, d3.max(pedalSeries, function(d) { return +d.sustain; })])
+    .range([ height, 0 ]);
+  let yAxis = svg.append("g")
+    //.call(d3.axisLeft(y));
 
-    pedalsChart.update();
-    console.log(pedalsChart);
-  }
+  // Add the line
+  let line = svg.append('g')
+    .attr("clip-path", "url(#clip)")
+  
+  line.append("path")
+    .datum(pedalSeries)
+    .attr("class", "line")
+    .attr("fill", "none")
+    .attr("stroke", "steelblue")
+    .attr("stroke-width", 1.5)
+    .attr("d", d3.line()
+      .x(function(d) { return x(d.tick) })
+      .y(function(d) { return y(d.sustain) })
+      );
 
+  return {'svg': svg, 'x': x, 'xAxis': xAxis, 'y': y, 'yAxis': yAxis, 'line': line };
+
+}
+
+const updatePedalZoom = function (min, max) {
+  pedalsChart.x.domain([ min, max ]);
+
+  pedalsChart.xAxis.transition()//.call(d3.axisBottom(pedalsChart.x))
+  pedalsChart.line.select('.line').transition().attr("d", d3.line()
+                                                                      .x(function(d) { return pedalsChart.x(d.tick) })
+                                                                      .y(function(d) { return pedalsChart.y(d.sustain) })
+                                                                    ) //.duration(1000)
 }
 
 const processHoleAnalysis = function(data) {
@@ -1287,11 +1288,8 @@ const panViewportToTick = function (tick, resetZoom) {
   openSeadragon.viewport.panTo(lineCenter);
 
   if (pedalsChart) {
-    console.log("Adjusting pan/zoom of pedals chart");
     const [firstPx, lastPx] = getViewableY();
-    pedalsChart.setZoom(firstPx - firstHolePx, lastPx - firstHolePx);
-    //zoomPlugin.zoomScale(pedalsChart, "xaxis", [firstPx - firstHolePx, lastPx - firstHolePx]);
-    //console.log(zoomPlugin);
+    updatePedalZoom(firstPx - firstHolePx, lastPx - firstHolePx);
   }
 
 };
@@ -1552,7 +1550,7 @@ const toggleRoll = function (event) {
     osdLair.classList.add("osdLair");
     document.getElementById("osdWrapper").appendChild(osdLair);
     initOSD();
-    initPlayer();
+    initPlayer();    
   } else {
     openSeadragon.close();
     openSeadragon = null;
