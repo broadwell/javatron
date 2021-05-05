@@ -9,6 +9,10 @@ import Bunzip from "seek-bzip";
 import { Buffer } from "buffer";
 import ATON from "aton";
 
+import Chart from 'chart.js';
+import zoomPlugin from 'chartjs-plugin-zoom';
+Chart.plugins.register(zoomPlugin);
+
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = [
   "A",
@@ -142,6 +146,7 @@ let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
 let tempoMap = null;
 let notesMap = null;
+let pedalSeries = null;
 let playComputedExpressions = true;
 let useRollPedaling = true;
 let accentOn = false;
@@ -149,6 +154,8 @@ let pedalTempoModOn = false;
 let volAccentModDelta = 1;
 let pedalTempoModDelta = 1;
 let useMidiTempos = true;
+
+let pedalsChart = null;
 
 let midiOut = null; // MIDI output device (should be at most one)
 const MIDI_NOTE_ON = 0x90; // = the event code (0x90) + channel (0)
@@ -340,6 +347,9 @@ const initPlayer = function () {
 
     pedalMap = new IntervalTree();
     notesMap = {"open": {}}
+    pedalSeries = {labels: [0], datasets: [{label: "Sustain", data: [0], borderColor: "red", fill: false},
+                                          {label: "Soft", data: [0], borderColor: "blue", fill: false}
+                                         ]};
 
     // Pedal events should be duplicated on each track, but best not to assume
     // this will always be the case. Assume however that the events are
@@ -363,6 +373,13 @@ const initPlayer = function () {
               sustainOn = false;
               pedalMap.insert(sustainStart, event.tick, "sustain");
             }
+            if (!pedalSeries.labels.includes(event.tick)) {
+              for (let i=pedalSeries.labels[pedalSeries.labels.length-1]+1; i<=event.tick; i += 100) {
+                pedalSeries.labels.push(i);
+                pedalSeries.datasets[0].data.push(sustainOn ? 1 : 0);
+                pedalSeries.datasets[1].data.push(softOn ? 1 : 0);
+              }
+            }
             // Soft pedal on/off
           } else if (event.number == 67) {
             // Consecutive "on" events just mean "yep, still on" ??
@@ -372,6 +389,13 @@ const initPlayer = function () {
             } else if (event.value == 0) {
               softOn = false;
               pedalMap.insert(softStart, event.tick, "soft");
+            }
+            if (!pedalSeries.labels.includes(event.tick)) {
+              for (let i=pedalSeries.labels[pedalSeries.labels.length-1]+1; i<=event.tick; i+= 100) {
+                pedalSeries.labels.push(i);
+                pedalSeries.datasets[0].data.push(sustainOn ? 1 : 0);
+                pedalSeries.datasets[1].data.push(softOn ? 1 : 0);
+              }
             }
           }
         } else if (event.name === "Set Tempo") {
@@ -405,6 +429,16 @@ const initPlayer = function () {
     });
 
     totalTicks = samplePlayer.totalTicks;
+
+    //pedalSeries.push({x: totalTicks, sustain: 0, soft: 00});
+    if (!pedalSeries.labels.includes(totalTicks)) {
+      for (let i=pedalSeries.labels[pedalSeries.labels.length-1]+1; i<=totalTicks; i+=100) {
+        pedalSeries.labels.push(i);
+        pedalSeries.datasets[0].data.push(0);
+        pedalSeries.datasets[1].data.push(0);
+      }
+    }
+    console.log(pedalSeries);
 
     let sortedTempoChanges = tempoChanges.sort(function(a, b) {
       return a[0] - b[0];
@@ -508,6 +542,7 @@ const initPlayer = function () {
     currentTick = 0;
     playerProgress();
 
+    initPedalPlot();
 
   });
 
@@ -568,6 +603,73 @@ const initPlayer = function () {
         processHoleAnalysis(data);
       }
     })
+
+}
+
+const initPedalPlot = function() {
+
+  const cfg = {
+    type: 'line',
+    data: pedalSeries,
+    options: {
+      pointRadius: 1,
+      pointStyle: 'circle',
+      borderWidth: 1,
+      legend: {
+        display: false
+      },
+      responsive: true,
+      spanGaps: true,
+      title: {
+        display: false,
+        text: "Pedaling events"
+      },
+      scales: {
+        yAxes: [{
+          ticks: {
+            display: false
+          }
+        }],
+        xAxes: [{
+          ticks: {
+            display: false
+          }
+        }]
+      },
+      plugins: {
+        zoom: {
+          zoom: {
+            enabled: true,
+            mode: 'x',
+          },
+          pan: {
+            enabled: true,
+            mode: 'x',
+          }
+        }
+      }
+    }
+  }
+
+  pedalsChart = new Chart(document.getElementById('pedalsChart'), cfg);
+
+  pedalsChart.setZoom = function(min, max) {
+    console.log("setting X zoom to",min,max);
+    console.log(pedalsChart.scales);
+    let xScale = pedalsChart.scales['x-axis-0'];
+    let tickOptions = xScale.options.ticks;
+    if (tickOptions) {
+      let labels = xScale.chart.data.labels;
+      xScale.options.ticks.min = Math.max(min,0);
+      xScale.options.ticks.max = max;
+    }
+    // helpers.each(chartInstance.data.datasets, function(dataset, id) {
+		// 	dataset._meta = null;
+		// });
+
+    pedalsChart.update();
+    console.log(pedalsChart);
+  }
 
 }
 
@@ -1183,6 +1285,14 @@ const panViewportToTick = function (tick, resetZoom) {
   updateProgress();
 
   openSeadragon.viewport.panTo(lineCenter);
+
+  if (pedalsChart) {
+    console.log("Adjusting pan/zoom of pedals chart");
+    const [firstPx, lastPx] = getViewableY();
+    pedalsChart.setZoom(firstPx - firstHolePx, lastPx - firstHolePx);
+    //zoomPlugin.zoomScale(pedalsChart, "xaxis", [firstPx - firstHolePx, lastPx - firstHolePx]);
+    //console.log(zoomPlugin);
+  }
 
 };
 
