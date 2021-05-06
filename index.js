@@ -10,6 +10,7 @@ import { Buffer } from "buffer";
 import ATON from "aton";
 
 import * as d3 from "d3";
+import { time } from "console";
 
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = [
@@ -154,7 +155,7 @@ let volAccentModDelta = 1;
 let pedalTempoModDelta = 1;
 let useMidiTempos = true;
 
-let sustainChart = null;
+let timeSeriesCharts = {};
 
 let midiOut = null; // MIDI output device (should be at most one)
 const MIDI_NOTE_ON = 0x90; // = the event code (0x90) + channel (0)
@@ -524,12 +525,17 @@ const initPlayer = function () {
     if (showRoll) {
 
       if (document.getElementById("timeCharts").hasChildNodes()) {
-        document.getElementById("timeCharts").children[0].remove();
+        while (document.getElementById("timeCharts").firstChild) {
+          document.getElementById("timeCharts").removeChild(document.getElementById("timeCharts").firstChild);
+        }
         document.getElementById("timeCharts").classList.remove("time-chart");
       }
 
       if (!scrollUp) {
-        sustainChart = initPlot(pedalSeries, "sustain", "red");
+        timeSeriesCharts['left_expression'] = initPlot(leftExpressionMap, "velocity", "orange", "Left velocities");
+        timeSeriesCharts['right_expression'] = initPlot(rightExpressionMap, "velocity", "purple", "Right velocities");
+        timeSeriesCharts['sustain'] = initPlot(pedalSeries, "sustain", "blue", "Sustain pedal");
+        timeSeriesCharts['soft'] = initPlot(pedalSeries, "soft", "green", "Soft pedal");
       }
       
       openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
@@ -604,9 +610,9 @@ const initPlayer = function () {
 
 }
 
-const initPlot = function(data, dataKey, lineColor) {
+const initPlot = function(data, dataKey, lineColor, title) {
 
-  const margin = {top: 10, right: 10, bottom: 10, left: 10},
+  const margin = {top: 10, right: 10, bottom: 10, left: 30},
     width = 1000 - margin.left - margin.right,
     height = 100 - margin.top - margin.bottom;
 
@@ -630,8 +636,12 @@ const initPlot = function(data, dataKey, lineColor) {
   let y = d3.scaleLinear()
     .domain([0, d3.max(data, function(d) { return +d[dataKey]; })])
     .range([ height, 0 ]);
+  let yAxisGrid = svg.append("g")
+    .attr("class","grid-lines")
+    .style("stroke-dasharray",("3,3"))
+    .call(d3.axisLeft(y).tickSize(-width).tickFormat('').ticks(8));
   let yAxis = svg.append("g")
-    //.call(d3.axisLeft(y));
+    .call(d3.axisLeft(y).ticks(4));
 
   // Add the line
   let line = svg.append('g')
@@ -648,9 +658,25 @@ const initPlot = function(data, dataKey, lineColor) {
       .y(function(d) { return y(d[dataKey]) })
       );
 
+  // To show data points. Beware: too many points will tank the animation
+  // svg.selectAll("dot")
+  //   	.data(data)
+  // 	.enter().append("circle")
+  // 		.attr("class", "dot")
+  // 		.attr("r",1)
+  // 		.attr("cx", function(d) { return x(d.tick); })
+  // 		.attr("cy", function(d) { return y(d[dataKey]); });
+
+  svg.append("text")
+    .attr("x", 15)
+    .attr("y", 15)
+    .attr("text-anchor", "left")
+    .style("font","14px arial")
+    .text(title);
+
   document.getElementById("timeCharts").classList.add("time-chart");
 
-  return {svg, x, xAxis, y, line /*, yAxis */};
+  return {svg, x, xAxis, y, line, dataKey /*, yAxis */};
 
 }
 
@@ -662,6 +688,7 @@ const updatePlotZoom = function (chart, min, max, dataKey) {
                                                             .x(function(d) { return chart.x(d.tick) })
                                                             .y(function(d) { return chart.y(d[dataKey]) })
                                                                     ) //.duration(1000)
+  //chart.svg.selectAll('circle').transition().attr("cx", function(d) { return chart.x(d.tick)});
 }
 
 const processHoleAnalysis = function(data) {
@@ -1276,9 +1303,11 @@ const panViewportToTick = function (tick, resetZoom) {
 
   openSeadragon.viewport.panTo(lineCenter);
 
-  if (sustainChart) {
+  if (Object.keys(timeSeriesCharts).length) {
     const [firstPx, lastPx] = getViewableY();
-    updatePlotZoom(sustainChart, firstPx - firstHolePx, lastPx - firstHolePx, "sustain");
+    for (let key in timeSeriesCharts) {
+      updatePlotZoom(timeSeriesCharts[key], firstPx - firstHolePx, lastPx - firstHolePx, timeSeriesCharts[key]["dataKey"]);
+    }
   }
 
 };
@@ -1533,7 +1562,9 @@ const toggleRoll = function (event) {
   showRoll = event.target.checked;
 
   if (document.getElementById("timeCharts").hasChildNodes()) {
-    document.getElementById("timeCharts").children[0].remove();
+    while (document.getElementById("timeCharts").firstChild) {
+      document.getElementById("timeCharts").removeChild(document.getElementById("timeCharts").firstChild);
+    }
     document.getElementById("timeCharts").classList.remove("time-chart");
   }
 
@@ -1547,7 +1578,7 @@ const toggleRoll = function (event) {
     initOSD();
     initPlayer();
   } else {
-    sustainChart = null;
+    timeSeriesCharts = {};
     openSeadragon.close();
     openSeadragon = null;
     document.getElementById("osdWrapper").children[0].remove();

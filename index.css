@@ -126,6 +126,16 @@ h3 {
 	width: 1px;
 	height: 100%;
 }
+
+.grid-lines line {
+    stroke: lightgrey;
+    stroke-opacity: 0.6;
+    shape-rendering: crispEdges
+}
+
+.dot {
+    fill: IndianRed;
+}
   
 #play-line{
 	background-color: blue;
