@@ -424,7 +424,7 @@ const initPlayer = function () {
 
     totalTicks = samplePlayer.totalTicks;
 
-    const CHART_INTERVAL = 10;
+    const CHART_INTERVAL = 40;
     pedalSeries = [];
 
     for (let i=0; i<=totalTicks; i+= CHART_INTERVAL) {
@@ -1233,6 +1233,13 @@ const skipTo = function (targetTick, targetProgress) {
     samplePlayer.skipToTick(currentTick);
   }
   updateProgress();
+
+  if (Object.keys(timeSeriesCharts).length) {
+    const [firstPx, lastPx] = getViewableY();
+    for (let key in timeSeriesCharts) {
+      updatePlotZoom(timeSeriesCharts[key], firstPx - firstHolePx, lastPx - firstHolePx, timeSeriesCharts[key]["dataKey"]);
+    }
+  }
 };
 
 const skipToPixel = function (pixelY) {
