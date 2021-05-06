@@ -42,7 +42,7 @@ const FLAT_NOTES = [
 ];
 const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are struck (usually)
 const DEFAULT_NOTE_VELOCITY = 33; // Only applies to manual keypresses and non-expression rolls
-const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans"
+const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans" (Welte red only)
 const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
 const HOME_ZOOM = 1;
 const ACCENT_BUMP = 1.5; // Multiple to increase velocity while the accent button is pressed
@@ -140,11 +140,12 @@ let softPedalOn = false;
 let sustainPedalLocked = false;
 let softPedalLocked = false;
 let sustainLevel = 127;
-let panBoundary = HALF_BOUNDARY;
 let pedalMap = null;
 let tempoMap = null;
 let notesMap = null;
 let pedalSeries = null;
+let leftExpressionMap = null;
+let rightExpressionMap = null;
 let playComputedExpressions = true;
 let useRollPedaling = true;
 let accentOn = false;
@@ -153,7 +154,7 @@ let volAccentModDelta = 1;
 let pedalTempoModDelta = 1;
 let useMidiTempos = true;
 
-let pedalsChart = null;
+let sustainChart = null;
 
 let midiOut = null; // MIDI output device (should be at most one)
 const MIDI_NOTE_ON = 0x90; // = the event code (0x90) + channel (0)
@@ -344,6 +345,8 @@ const initPlayer = function () {
     let tempoChanges = [];
 
     pedalMap = new IntervalTree();
+    leftExpressionMap = [];
+    rightExpressionMap = [];
     notesMap = {"open": {}};
 
     // Pedal events should be duplicated on each track, but best not to assume
@@ -392,6 +395,15 @@ const initPlayer = function () {
             return;
           }
           const noteNumber = event.noteNumber;
+
+          if (event.velocity != 0) {
+            if (noteNumber <= HALF_BOUNDARY) {
+              leftExpressionMap.push({"tick": event.tick, "velocity": event.velocity});
+            } else {
+              rightExpressionMap.push({"tick": event.tick, "velocity": event.velocity});
+            }
+          }
+
           if ((event.velocity == 0) && (notesMap["open"][noteNumber] !== undefined)) {
             const startTick = notesMap["open"][noteNumber];
             if (notesMap[startTick] === undefined) {
@@ -511,13 +523,13 @@ const initPlayer = function () {
 
     if (showRoll) {
 
-      if (document.getElementById("pedalsChart").hasChildNodes()) {
-        document.getElementById("pedalsChart").children[0].remove();
-        document.getElementById("pedalsChart").classList.remove("pedal-chart");
+      if (document.getElementById("timeCharts").hasChildNodes()) {
+        document.getElementById("timeCharts").children[0].remove();
+        document.getElementById("timeCharts").classList.remove("time-chart");
       }
 
       if (!scrollUp) {
-        pedalsChart = initPedalPlot();
+        sustainChart = initPlot(pedalSeries, "sustain", "red");
       }
       
       openSeadragon.open(recordings_data[currentRecordingId]["image_url"]);
@@ -592,13 +604,13 @@ const initPlayer = function () {
 
 }
 
-const initPedalPlot = function() {
+const initPlot = function(data, dataKey, lineColor) {
 
   const margin = {top: 10, right: 10, bottom: 10, left: 10},
     width = 1000 - margin.left - margin.right,
     height = 100 - margin.top - margin.bottom;
 
-  let svg = d3.select("#pedalsChart")
+  let svg = d3.select("#timeCharts")
   .append("svg")
     .attr("width", width + margin.left + margin.right)
     .attr("height", height + margin.top + margin.bottom)
@@ -608,70 +620,48 @@ const initPedalPlot = function() {
 
   // Add X axis
   let x = d3.scaleLinear()
-    .domain(d3.extent(pedalSeries, function(d) { return +d.tick; }))
+    .domain(d3.extent(data, function(d) { return +d.tick; }))
     .range([ 0, width ]);
   let xAxis = svg.append("g")
     .attr("transform", "translate(0," + height + ")")
     //.call(d3.axisBottom(x));
   
   // Add Y axis
-  let y1 = d3.scaleLinear()
-    .domain([0, d3.max(pedalSeries, function(d) { return +d.sustain; })])
+  let y = d3.scaleLinear()
+    .domain([0, d3.max(data, function(d) { return +d[dataKey]; })])
     .range([ height, 0 ]);
-  let yAxis1 = svg.append("g")
+  let yAxis = svg.append("g")
     //.call(d3.axisLeft(y));
-  let y2 = d3.scaleLinear()
-    .domain([0, d3.max(pedalSeries, function(d) { return +d.soft; })])
-    .range([ height, 0 ]);
-  let yAxis2 = svg.append("g")
 
   // Add the line
-  let sustainLine = svg.append('g')
+  let line = svg.append('g')
     .attr("clip-path", "url(#clip)")
   
-  sustainLine.append("path")
-    .datum(pedalSeries)
-    .attr("class", "sustain-line")
+  line.append("path")
+    .datum(data)
+    .attr("class", "line")
     .attr("fill", "none")
-    .attr("stroke", "steelblue")
+    .attr("stroke", lineColor)
     .attr("stroke-width", 1.5)
     .attr("d", d3.line()
       .x(function(d) { return x(d.tick) })
-      .y(function(d) { return y1(d.sustain) })
-      );
-  
-  let softLine = svg.append('g')
-     .attr("clip-path", "url(#clip)")
-  
-  softLine.append("path")
-    .datum(pedalSeries)
-    .attr("class", "soft-line")
-    .attr("fill", "none")
-    .attr("stroke", "lightgreen")
-    .attr("stroke-width", 1.5)
-    .attr("d", d3.line()
-      .x(function(d) { return x(d.tick) })
-      .y(function(d) { return y2(d.soft) })
+      .y(function(d) { return y(d[dataKey]) })
       );
 
-  document.getElementById("pedalsChart").classList.add("pedal-chart");
+  document.getElementById("timeCharts").classList.add("time-chart");
 
-  return {svg, x, xAxis, y1, y2, sustainLine, softLine /*, yAxis1, yAxis2*/};
+  return {svg, x, xAxis, y, line /*, yAxis */};
 
 }
 
-const updatePedalZoom = function (min, max) {
-  pedalsChart.x.domain([ min, max ]);
+const updatePlotZoom = function (chart, min, max, dataKey) {
+  chart.x.domain([ min, max ]);
 
-  pedalsChart.xAxis.transition()//.call(d3.axisBottom(pedalsChart.x))
-  pedalsChart.sustainLine.select('.sustain-line').transition().attr("d", d3.line()
-                                                                      .x(function(d) { return pedalsChart.x(d.tick) })
-                                                                      .y(function(d) { return pedalsChart.y1(d.sustain) })
+  chart.xAxis.transition()//.call(d3.axisBottom(pedalsChart.x))
+  chart.line.select('.line').transition().attr("d", d3.line()
+                                                            .x(function(d) { return chart.x(d.tick) })
+                                                            .y(function(d) { return chart.y(d[dataKey]) })
                                                                     ) //.duration(1000)
-  pedalsChart.softLine.select('.soft-line').transition().attr("d", d3.line()
-                                                                    .x(function(d) { return pedalsChart.x(d.tick) })
-                                                                    .y(function(d) { return pedalsChart.y2(d.soft) })
-                                                                  ) //.duration(1000)*/
 }
 
 const processHoleAnalysis = function(data) {
@@ -1030,9 +1020,9 @@ const midiEvent = function (event) {
             updatedVolume *= SOFT_PEDAL_RATIO;
           }
         }
-        if (parseInt(noteNumber) < panBoundary) {
+        if (parseInt(noteNumber) <= HALF_BOUNDARY) {
           updatedVolume *= leftVolumeRatio;
-        } else if (parseInt(noteNumber) >= panBoundary) {
+        } else if (parseInt(noteNumber) > HALF_BOUNDARY) {
           updatedVolume *= rightVolumeRatio;
         }
         //console.log("ON", getNoteName(noteNumber), noteVelocity);
@@ -1067,7 +1057,6 @@ const midiEvent = function (event) {
       // presumably bass and treble. These values are a bit odd
       // however and it's not clear how to use them, e.g.,
       // track 2: value = 52, track 3: value = 76
-      //panBoundary = event.value;
     }
   } else if (event.name === "Set Tempo") {
     midiTempo = parseFloat(event.data);
@@ -1287,9 +1276,9 @@ const panViewportToTick = function (tick, resetZoom) {
 
   openSeadragon.viewport.panTo(lineCenter);
 
-  if (pedalsChart) {
+  if (sustainChart) {
     const [firstPx, lastPx] = getViewableY();
-    updatePedalZoom(firstPx - firstHolePx, lastPx - firstHolePx);
+    updatePlotZoom(sustainChart, firstPx - firstHolePx, lastPx - firstHolePx, "sustain");
   }
 
 };
@@ -1419,9 +1408,9 @@ const midiNotePlayer = function (noteNumber, onIfTrue, velocity) {
         updatedVolume *= SOFT_PEDAL_RATIO;
       }
     }
-    if (parseInt(noteNumber) < HALF_BOUNDARY) {
+    if (parseInt(noteNumber) <= HALF_BOUNDARY) {
       updatedVolume *= leftVolumeRatio;
-    } else if (parseInt(noteNumber) >= HALF_BOUNDARY) {
+    } else if (parseInt(noteNumber) > HALF_BOUNDARY) {
       updatedVolume *= rightVolumeRatio;
     }
     startNote(noteNumber, updatedVolume);
@@ -1543,9 +1532,9 @@ const toggleRoll = function (event) {
 
   showRoll = event.target.checked;
 
-  if (document.getElementById("pedalsChart").hasChildNodes()) {
-    document.getElementById("pedalsChart").children[0].remove();
-    document.getElementById("pedalsChart").classList.remove("pedal-chart");
+  if (document.getElementById("timeCharts").hasChildNodes()) {
+    document.getElementById("timeCharts").children[0].remove();
+    document.getElementById("timeCharts").classList.remove("time-chart");
   }
 
   if (event.target.checked) {
@@ -1557,10 +1546,8 @@ const toggleRoll = function (event) {
     document.getElementById("osdWrapper").appendChild(osdLair);
     initOSD();
     initPlayer();
-    //const [firstPx, lastPx] = getViewableY();
-    //updatePedalZoom(firstPx - firstHolePx, lastPx - firstHolePx);
   } else {
-    pedalsChart = null;
+    sustainChart = null;
     openSeadragon.close();
     openSeadragon = null;
     document.getElementById("osdWrapper").children[0].remove();
