@@ -10,7 +10,7 @@ import { Buffer } from "buffer";
 import ATON from "aton";
 
 import * as d3 from "d3";
-import { time } from "console";
+//import { time } from "console";
 
 const UPDATE_INTERVAL_MS = 100;
 const SHARP_NOTES = [
@@ -481,7 +481,7 @@ const initPlayer = function () {
       accelFactor += accelRate;
     }
 
-    console.log(rollMetadata);
+    //console.log(rollMetadata);
 
     document.getElementById("title").innerText = rollMetadata["TITLE"];
     let performer = rollMetadata["PERFORMER"];
@@ -612,9 +612,9 @@ const initPlayer = function () {
 
 const initPlot = function(data, dataKey, lineColor, title) {
 
-  const margin = {top: 10, right: 10, bottom: 10, left: 30},
+  const margin = {top: 5, right: 5, bottom: 5, left: 30},
     width = 1000 - margin.left - margin.right,
-    height = 100 - margin.top - margin.bottom;
+    height = 50 - margin.top - margin.bottom;
 
   let svg = d3.select("#timeCharts")
   .append("svg")
@@ -979,9 +979,10 @@ const midiEvent = function (event) {
            /* Use hole analysis report data, if available */
            updateOverlays(event.tick);
         
-        } else {
+        } //else {
 
           /* No hole analysis data available; build overlays from notesMap and guesswork. */
+          /* (or just do it anyway, to get more informative overlays) */
 
           clearOverlaysBeforeTick(event.tick);
 
@@ -1018,9 +1019,9 @@ const midiEvent = function (event) {
 
           let noteRect = document.createElement("div");
           if (event.track <= 3) {
-            noteRect.classList.add('music-hole');
+            noteRect.classList.add('midi-music-hole');
           } else {
-            noteRect.classList.add('control-hole')
+            noteRect.classList.add('midi-control-hole')
           }
           noteRect.title = noteName;
 
@@ -1033,7 +1034,7 @@ const midiEvent = function (event) {
           } else {
             holeOverlays[offTime].push(noteRect);
           }
-        }
+        //}
       }
 
       if (event.track <= 3) {
