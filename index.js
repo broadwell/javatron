@@ -4,7 +4,7 @@ import IntervalTree from "node-interval-tree";
 import verovio from "verovio";
 import { v4 as uuidv4 } from "uuid";
 import Keyboard from "piano-keyboard";
-import { Piano } from "@tonejs/piano";
+//import { Piano } from "@tonejs/piano";
 import Bunzip from "seek-bzip";
 import { Buffer } from "buffer";
 import ATON from "aton";
@@ -44,7 +44,7 @@ const FLAT_NOTES = [
 const SOFT_PEDAL_RATIO = 0.67; // Pedal shifts hammers so only 2/3 strings are struck (usually)
 const DEFAULT_NOTE_VELOCITY = 33; // Only applies to manual keypresses and non-expression rolls
 const HALF_BOUNDARY = 66; // F# above Middle C; divides the keyboard into two "pans" (Welte red only)
-const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
+//const DEFAULT_VELOCITIES = 4; // Number of piano sample velocities to use for playback
 const HOME_ZOOM = 1;
 const ACCENT_BUMP = 1.5; // Multiple to increase velocity while the accent button is pressed
 const TEMPO_KEY_DELTA = 5; // Number of tempo "bpm" to + or - on keyboard input
@@ -52,6 +52,7 @@ const VOLUME_KEY_DELTA = .2; // Proportion to + or - volume on keyboard input
 const VOL_ACCENT_MOD_DELTA = .5;
 const PEDAL_TEMPO_MOD_DELTA = .4;
 const BASE_DATA_URL = "https://broadwell.github.io/piano_rolls/";
+//const BASE_DATA_URL = "http://localhost/~pmb/broadwell.github.io/piano_rolls/";
 const SUSTAIN_PEDAL_KEY = "KeyC";
 const SOFT_PEDAL_KEY = "KeyQ";
 const TEMPO_SLOWER_KEY = "KeyW";
@@ -64,7 +65,7 @@ const VOL_ACCENT_MODIFY_KEY = "ShiftRight";
 const SUSTAIN_LESS_KEY = "KeyB";
 const SUSTAIN_MORE_KEY = "KeyN";
 const SUSTAIN_LEVEL_DELTA = 5;
-const WELTE_MIDI_START = 10; // TRACKER_HOLE 1 = MIDI 11
+const WELTE_MIDI_START = 10; // TRACKER_HOLE 1 = MIDI 11 (NOT ALWAYS!)
 const WELTE_RED_FIRST_NOTE = 24;
 const WELTE_RED_LAST_NOTE = 103;
 const WELTE_RED_NOTES_START = 11; // For overlays from MIDI numbers alone
@@ -198,6 +199,8 @@ let scrollUp = false;
 
 let keyboard = null;
 
+let pianoWorker = null;
+
 const startNote = function (noteNumber, volume) {
 
   if (accentOn) {
@@ -209,7 +212,8 @@ const startNote = function (noteNumber, volume) {
   let noteVelocity = Math.round(127.0 * volume);
 
   if (noteVelocity > 0) {
-    piano.keyDown({ midi: noteNumber, velocity: volume });
+    //piano.keyDown({ midi: noteNumber, velocity: volume });
+    //pianoWorker.postMessage({"action": "keyDown", "midi": noteNumber, "velocity": volume});
     if (midiOut) {
       midiOut.send([MIDI_NOTE_ON, noteNumber, noteVelocity]);
     }
@@ -218,7 +222,8 @@ const startNote = function (noteNumber, volume) {
 };
 
 const stopNote = function (noteNumber) {
-  piano.keyUp({ midi: noteNumber });
+  //piano.keyUp({ midi: noteNumber });
+  //pianoWorker.postMessage({"action": "keyUp", "midi": noteNumber});
   keyboardToggleKey(noteNumber, false);
   if (midiOut) {
     midiOut.send([MIDI_NOTE_OFF, noteNumber, 0]);
@@ -1358,14 +1363,16 @@ const pressSustainPedal = function (pedalInput) {
     const sustainRatio = parseFloat(parseFloat(sustainLevel) / 127.0);
     //console.log("PEDAL DOWN AT LEVEL",sustainRatio);
     // level is only consequential if modified Piano is being used
-    piano.pedalDown({ level: sustainRatio });
+    //piano.pedalDown({ level: sustainRatio });
+    //pianoWorker.postMessage({"action": "pedalDown", "level": sustainRatio});
     sustainPedalOn = true;
     document.getElementById("sustainPedal").classList.add("pressed");
   }
 };
 
 const releaseSustainPedal = function () {
-  piano.pedalUp();
+  //piano.pedalUp();
+  //pianoWorker.postMessage({"action": "pedalUp"});
   if (midiOut) {
     midiOut.send([MIDI_CONTROL, MIDI_SUSTAIN, 0]);
   }
@@ -1716,25 +1723,6 @@ const initOSD = function() {
 
 initOSD();
 
-let globalPiano = null;
-
-// create the piano and load velocity steps
-let piano = new Piano({
-  url: BASE_DATA_URL + 'audio/mp3/', // works if avaialable
-  velocities: DEFAULT_VELOCITIES,
-  release: true,
-  pedal: true,
-  maxPolyphony: 64,
-}).toDestination();
-
-let loadPiano = piano.load();
-Promise.all([loadPiano]).then(() => {
-  console.log("Piano loaded");
-  document.getElementById("playPause").disabled = false;
-  keyboard.enable();
-  globalPiano = piano;
-});
-
 let keyboard_elt = document.querySelector(".keyboard");
 
 keyboard = new Keyboard({
@@ -1751,6 +1739,23 @@ keyboard
     midiNotePlayer(which + 20, false);
   });
 
+// XXX XXX Won't work because Web Workers don't have access
+// to the AudioContext :(
+// pianoWorker = new Worker('PianoPlayer.js');
+
+// pianoWorker.onmessage = (e) => {
+//   // Only message I can think of is the "ready to play" message.
+//   if (e == "ready") {
+//     console.log("Player is ready");
+//     document.getElementById("playPause").disabled = false;
+//     keyboard.enable();
+//   }
+// }
+
+document.getElementById("playPause").disabled = false;
+keyboard.enable();
+
+/*
 document.querySelectorAll("input.samplevol").forEach((input) => {
   piano[input.name].value = parseInt(input.value, 10);
   document.getElementById(input.name).value = parseInt(input.value, 10);
@@ -1802,6 +1807,7 @@ document.getElementById("velocitiesSlider").addEventListener("input", (e) => {
   });
 
 });
+*/
 
 let recordingsChooser = document.getElementById("recordings");
 recordingsChooser.onchange = loadRecording;
@@ -1985,6 +1991,7 @@ if (navigator.requestMIDIAccess) {
   console.log('This browser supports WebMIDI!');
   navigator.requestMIDIAccess()
     .then(function(midi) {
+      return;
 
       // Get lists of available MIDI controllers
       //const inputs = access.inputs.values();
